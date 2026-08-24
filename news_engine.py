@@ -33,3 +33,7 @@ def fetch_stock_news_sentiment(symbol):
         
     sentiment = "BULLISH" if score > 10 else ("BEARISH" if score < -10 else "NEUTRAL")
     return {"sentiment": sentiment, "score": score, "headlines": headlines[:3]}
+
+def fetch_market_news():
+    """auto_telegram_scanner साठी मार्केट न्यूज रॅपर फंक्शन"""
+    return fetch_stock_news_sentiment("NIFTY 50")
