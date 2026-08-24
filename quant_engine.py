@@ -38,7 +38,7 @@ def add_indicators(df):
     return df
 
 def analyze_index(symbol, df_15m, display_name=None):
-    """NIFTY / BANKNIFTY Options (CALL / PUT) साठी स्वतंत्र अनालिसिस"""
+    """NIFTY / BANKNIFTY Options (CALL / PUT) साठी टेलिग्राम सुसंगत अनालिसिस"""
     if df_15m is None or not isinstance(df_15m, pd.DataFrame) or df_15m.empty or len(df_15m) < 10:
         return None
     
@@ -57,18 +57,23 @@ def analyze_index(symbol, df_15m, display_name=None):
         action = "BUY CALL (CE)"
         sl = round(price - (1.0 * atr), 2)
         tp = round(price + (1.8 * atr), 2)
+        bias = "BULLISH"
     else:
         action = "BUY PUT (PE)"
         sl = round(price + (1.0 * atr), 2)
         tp = round(price - (1.8 * atr), 2)
+        bias = "BEARISH"
         
     return {
-        "symbol": name,
+        "name": name,
+        "symbol": symbol,
         "price": round(price, 2),
         "action": action,
         "entry": round(price, 2),
         "sl": sl,
         "tp": tp,
+        "rsi": round(rsi, 1),
+        "bias": bias,
         "confidence": 85
     }
 
@@ -142,6 +147,7 @@ def build_scanner_row(symbol, df_15m, df_daily=None, *args, **kwargs):
         confidence = min(bear_score, 98)
 
     return {
+        "name": symbol,
         "symbol": symbol, "sector": sector, "price": round(price, 2),
         "action": action, "confidence": confidence, "entry": round(price, 2),
         "sl": sl, "tp1": tp1, "tp2": tp2, "reasons": reasons
