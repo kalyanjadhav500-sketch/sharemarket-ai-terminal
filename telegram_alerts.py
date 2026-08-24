@@ -1,6 +1,14 @@
 import os
 import requests
 import html
+import urllib3
+from dotenv import load_dotenv
+
+# Local Windows SSL warnings disable करणे
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# .env फाईलमधून TELEGRAM_BOT_TOKEN व TELEGRAM_CHAT_ID आपोआप वाचणे
+load_dotenv()
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -19,7 +27,8 @@ def send_telegram_message(message_text):
         "disable_web_page_preview": True
     }
     try:
-        response = requests.post(url, json=payload, timeout=12)
+        # verify=False मुळे Windows मधील SSL Certificate Error बायपास होतो
+        response = requests.post(url, json=payload, timeout=12, verify=False)
         if response.status_code == 200:
             print("[Telegram Alerts] Message successfully sent.")
             return True
