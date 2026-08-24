@@ -5,6 +5,7 @@ from quant_engine import analyze_index, build_scanner_row
 from telegram_alerts import send_index_signal, send_top_stocks
 
 # Multi-Sector Watchlist Mapping
+# Multi-Sector Watchlist Mapping
 WATCHLIST_SECTORS = {
     "RELIANCE": "Energy",
     "TCS": "IT",
@@ -14,7 +15,7 @@ WATCHLIST_SECTORS = {
     "SBIN": "Banking",
     "BHARTIARTL": "Telecom",
     "TATASTEEL": "Metals",
-    "LTIM": "IT",
+    "TATAMOTORS": "Auto",
     "M&M": "Auto"
 }
 
