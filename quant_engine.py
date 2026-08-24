@@ -3,7 +3,7 @@ import numpy as np
 
 def add_indicators(df):
     """तांत्रिक इंडिकेटर्स जोडणे (EMA, VWAP, RSI, ATR, MACD)"""
-    if df.empty or len(df) < 15:
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty or len(df) < 15:
         return df
     
     df = df.copy()
@@ -41,16 +41,20 @@ def add_indicators(df):
     return df
 
 def market_regime(df):
-    """Streamlit Dashboard साठी Market Regime"""
-    if df.empty or len(df) < 20:
-        return "NEUTRAL", 50
+    """Streamlit Dashboard साठी Market Regime (Dict Return)"""
+    default_res = {"regime": "NEUTRAL", "confidence": 50, "score": 50}
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty or len(df) < 20:
+        return default_res
+    
     df = add_indicators(df)
     l = df.iloc[-1]
+    
     if l['Close'] > l['EMA_50'] and l['RSI'] > 55:
-        return "BULLISH", 80
+        return {"regime": "BULLISH", "confidence": 80, "score": 80}
     elif l['Close'] < l['EMA_50'] and l['RSI'] < 45:
-        return "BEARISH", 80
-    return "SIDEWAYS / NEUTRAL", 50
+        return {"regime": "BEARISH", "confidence": 80, "score": 80}
+    
+    return default_res
 
 def sector_strength(sector_data=None):
     """Streamlit Dashboard साठी Sector Strength"""
@@ -58,7 +62,7 @@ def sector_strength(sector_data=None):
 
 def analyze_index(symbol, df, name):
     """NIFTY, BANK NIFTY, SENSEX इंडेक्स सखोल अभ्यास"""
-    if df.empty or len(df) < 20:
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty or len(df) < 20:
         return None
     x = add_indicators(df)
     l = x.iloc[-1]
@@ -107,11 +111,10 @@ def analyze_index(symbol, df, name):
     }
 
 def build_scanner_row(symbol, df_15m, df_daily=None, *args, **kwargs):
-    """२४ तास डीप रिसर्च आणि अचूक लेव्हल्स जनरेटर (Dashboard + Telegram कंपॅटिबल)"""
+    """२४ तास डीप रिसर्च आणि अचूक लेव्हल्स जनरेटर"""
     if df_15m is None or not isinstance(df_15m, pd.DataFrame) or df_15m.empty or len(df_15m) < 20:
         return None
 
-    # sector किंवा इतर मल्टिपल पॅरामीटर्स हाताळणी
     sector = kwargs.get("sector", "EQUITY")
     if args and len(args) >= 2 and isinstance(args[-1], str):
         sector = args[-1]
