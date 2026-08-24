@@ -36,8 +36,9 @@ def get_symbols(user_input):
     return f"NSE:{clean_sym}", f"{clean_sym}.NS", clean_sym, False
 
 def render_tradingview_chart(tv_symbol):
-    """TradingView Live Interactive Chart (Dynamic Key Fix)"""
-    container_id = f"tv_widget_{tv_symbol.replace(':', '_')}"
+    """TradingView Live Interactive Chart (TypeError Fix)"""
+    container_id = f"tv_chart_{tv_symbol.replace(':', '_').replace('-', '_')}"
+    
     html_code = f"""
     <div class="tradingview-widget-container" style="height:550px;width:100%">
       <div id="{container_id}" style="height:calc(100% - 32px);width:100%"></div>
@@ -59,7 +60,7 @@ def render_tradingview_chart(tv_symbol):
       </script>
     </div>
     """
-    components.html(html_code, height=560, key=f"tv_chart_{tv_symbol}")
+    components.html(html_code, height=560)
 
 # --- १. मुख्य मार्केट हेडर ---
 st.subheader("📊 Live Market Overview")
@@ -133,11 +134,14 @@ if search_input:
                 m2.metric("Action", trade_setup['action'])
                 m3.metric("Entry Price", f"₹{trade_setup['entry']}")
                 m4.metric("Stop Loss (SL)", f"₹{trade_setup['sl']}")
-                m5.metric("Target 1 / 2", f"₹{trade_setup['tp1']} / ₹{trade_setup['tp2']}")
+                
+                tp1_val = trade_setup.get('tp1', trade_setup.get('tp', 0))
+                tp2_val = trade_setup.get('tp2', trade_setup.get('tp', 0))
+                m5.metric("Target 1 / 2", f"₹{tp1_val} / ₹{tp2_val}")
                 
                 st.write(f"**AI Confidence Level:** `{trade_setup['confidence']}%`")
                 st.markdown("**💡 AI Research Logic (निर्णयाची सखोल कारणे):**")
-                for r in trade_setup['reasons']:
+                for r in trade_setup.get('reasons', []):
                     st.write(f"• {r}")
             else:
                 st.warning("डेटा लोड होण्यात अडचण येत आहे. सिम्बॉल पुन्हा तपासा.")
