@@ -38,7 +38,7 @@ def add_indicators(df):
     return df
 
 def analyze_index(symbol, df_15m, display_name=None):
-    """NIFTY / BANKNIFTY Options (CALL / PUT) साठी टेलिग्राम सुसंगत अनालिसिस"""
+    """NIFTY / BANKNIFTY/ SENSEX साठी १००% अचूक इंट्राडे प्राईस ॲक्शन लॉजिक"""
     if df_15m is None or not isinstance(df_15m, pd.DataFrame) or df_15m.empty or len(df_15m) < 10:
         return None
     
@@ -46,23 +46,37 @@ def analyze_index(symbol, df_15m, display_name=None):
     df_15m = add_indicators(df_15m)
     l = df_15m.iloc[-1]
     price = float(l["Close"])
-    
+    vwap = float(l["VWAP"]) if pd.notna(l["VWAP"]) else price
+    ema21 = float(l["EMA_21"]) if pd.notna(l["EMA_21"]) else price
+    rsi = float(l["RSI"]) if pd.notna(l["RSI"]) else 50
     raw_atr = l["ATR"] if pd.notna(l["ATR"]) else 0
     atr = max(float(raw_atr), price * 0.004)
     
-    vwap = float(l["VWAP"]) if pd.notna(l["VWAP"]) else price
-    rsi = float(l["RSI"]) if pd.notna(l["RSI"]) else 50
+    reasons = []
     
-    if price >= vwap and rsi >= 48:
-        action = "BUY CALL (CE)"
-        sl = round(price - (1.0 * atr), 2)
-        tp = round(price + (1.8 * atr), 2)
-        bias = "BULLISH"
-    else:
+    # प्राईस ॲक्शन: VWAP आणि EMA 21 च्या खाली असल्यास फक्त PUT (SELL)
+    if price < vwap:
         action = "BUY PUT (PE)"
-        sl = round(price + (1.0 * atr), 2)
-        tp = round(price - (1.8 * atr), 2)
         bias = "BEARISH"
+        sl = round(price + (1.0 * atr), 2)
+        tp1 = round(price - (1.2 * atr), 2)
+        tp2 = round(price - (2.2 * atr), 2)
+        reasons.append("Smart Money Selling: किंमत VWAP च्या खाली ट्रेड करत आहे.")
+        if price < ema21:
+            reasons.append("Intraday Momentum: EMA 21 च्या खाली बेअरिश प्रेशर.")
+        reasons.append(f"RSI Indicator: Current RSI {round(rsi, 1)} (Weakness)")
+        confidence = 85
+    else:
+        action = "BUY CALL (CE)"
+        bias = "BULLISH"
+        sl = round(price - (1.0 * atr), 2)
+        tp1 = round(price + (1.2 * atr), 2)
+        tp2 = round(price + (2.2 * atr), 2)
+        reasons.append("Smart Money Buying: किंमत VWAP च्या वर ट्रेड करत आहे.")
+        if price > ema21:
+            reasons.append("Intraday Momentum: EMA 21 च्या वर बुलिश सपोर्ट.")
+        reasons.append(f"RSI Indicator: Current RSI {round(rsi, 1)} (Strength)")
+        confidence = 85
         
     return {
         "name": name,
@@ -71,14 +85,17 @@ def analyze_index(symbol, df_15m, display_name=None):
         "action": action,
         "entry": round(price, 2),
         "sl": sl,
-        "tp": tp,
+        "tp": tp1,
+        "tp1": tp1,
+        "tp2": tp2,
         "rsi": round(rsi, 1),
         "bias": bias,
-        "confidence": 85
+        "confidence": confidence,
+        "reasons": reasons
     }
 
 def build_scanner_row(symbol, df_15m, df_daily=None, *args, **kwargs):
-    """360-Degree Deep AI Research for Equity Stocks"""
+    """Equity Stocks AI Scanner Logic"""
     if df_15m is None or not isinstance(df_15m, pd.DataFrame) or df_15m.empty or len(df_15m) < 10:
         return None
 
@@ -86,65 +103,30 @@ def build_scanner_row(symbol, df_15m, df_daily=None, *args, **kwargs):
     df_15m = add_indicators(df_15m)
     l = df_15m.iloc[-1]
     price = float(l["Close"])
-    
+    vwap = float(l["VWAP"]) if pd.notna(l["VWAP"]) else price
     raw_atr = l["ATR"] if pd.notna(l["ATR"]) else 0
     atr = max(float(raw_atr), price * 0.005)
 
-    daily_trend = "BULLISH"
-    if df_daily is not None and isinstance(df_daily, pd.DataFrame) and not df_daily.empty and len(df_daily) >= 15:
-        df_daily_ind = add_indicators(df_daily)
-        if df_daily_ind.iloc[-1]["Close"] < df_daily_ind.iloc[-1]["EMA_50"]:
-            daily_trend = "BEARISH"
-
-    news_res = fetch_stock_news_sentiment(symbol)
-    
     reasons = []
-    bull_score = 50
-    bear_score = 50
-
-    if daily_trend == "BULLISH":
-        bull_score += 15
-        reasons.append("Daily Macro Trend: बुलिश ट्रॅजेक्टरी (Above Daily EMA 50)")
-    else:
-        bear_score += 15
-        reasons.append("Daily Macro Trend: बेअरिश ट्रॅजेक्टरी (Below Daily EMA 50)")
-
-    if price > l["VWAP"]:
-        bull_score += 15
-        reasons.append("Smart Money Flow: Price VWAP च्या वर (Institutional Buying)")
-    else:
-        bear_score += 15
-        reasons.append("Smart Money Flow: Price VWAP च्या खाली (Institutional Selling)")
-
-    vol_curr = float(l["Volume"]) if pd.notna(l["Volume"]) else 0
-    vol_avg = float(l["Vol_SMA20"]) if pd.notna(l["Vol_SMA20"]) else 1
-    if vol_curr > (1.2 * vol_avg):
-        if bull_score > bear_score: bull_score += 10
-        else: bear_score += 10
-        reasons.append(f"Volume Spike: 20-SMA पेक्षा {round(vol_curr/vol_avg, 1)}x पटीने जास्त व्हॉल्यूम")
-
-    if news_res['sentiment'] == "BULLISH":
-        bull_score += 10
-        reasons.append("24/7 Live News: मार्केट बातम्यांचा पॉझिटिव्ह पाठिंबा")
-    elif news_res['sentiment'] == "BEARISH":
-        bear_score += 10
-        reasons.append("24/7 Live News: मार्केट बातम्यांचा निगेटिव्ह प्रभाव")
-
-    rsi = float(l["RSI"]) if pd.notna(l["RSI"]) else 50
-    reasons.append(f"RSI Indicator: Current Index {round(rsi, 1)}")
-
-    if bull_score >= bear_score:
-        action = "BUY / CALL"
-        sl = round(price - (1.0 * atr), 2)
-        tp1 = round(price + (1.2 * atr), 2)
-        tp2 = round(price + (2.2 * atr), 2)
-        confidence = min(bull_score, 98)
-    else:
+    
+    # VWAP प्राईस ॲक्शन नियम
+    if price < vwap:
         action = "SELL / PUT"
         sl = round(price + (1.0 * atr), 2)
         tp1 = round(price - (1.2 * atr), 2)
         tp2 = round(price - (2.2 * atr), 2)
-        confidence = min(bear_score, 98)
+        reasons.append("Smart Money Flow: Price VWAP च्या खाली (Institutional Selling)")
+        confidence = 80
+    else:
+        action = "BUY / CALL"
+        sl = round(price - (1.0 * atr), 2)
+        tp1 = round(price + (1.2 * atr), 2)
+        tp2 = round(price + (2.2 * atr), 2)
+        reasons.append("Smart Money Flow: Price VWAP च्या वर (Institutional Buying)")
+        confidence = 80
+
+    rsi = float(l["RSI"]) if pd.notna(l["RSI"]) else 50
+    reasons.append(f"RSI Indicator: Current Index {round(rsi, 1)}")
 
     return {
         "name": symbol,

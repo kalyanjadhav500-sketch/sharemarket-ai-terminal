@@ -5,7 +5,7 @@ import streamlit.components.v1 as components
 
 # Quant Engine इंपोर्ट
 try:
-    from quant_engine import build_scanner_row
+    from quant_engine import build_scanner_row, analyze_index
 except Exception as e:
     st.error(f"Import Error: {e}")
 
@@ -19,46 +19,28 @@ st.markdown("""
 
 st.title("⚡ AI Quant Trading Terminal")
 
-def get_tv_symbol(user_input):
-    """TradingView चा अचूक Symbol शोधणे"""
+def get_symbols(user_input):
+    """TradingView आणि Yahoo Finance सिम्बॉल मॅपिंग"""
     clean = user_input.strip().upper().replace(" ", "")
-    tv_map = {
-        "NIFTY": "NSE:NIFTY",
-        "NIFTY50": "NSE:NIFTY",
-        "BANKNIFTY": "NSE:BANKNIFTY",
-        "FINNIFTY": "NSE:FINNIFTY",
-        "SENSEX": "BSE:SENSEX",
-        "INDIAVIX": "NSE:INDIAVIX",
-        "VIX": "NSE:INDIAVIX"
-    }
-    if clean in tv_map:
-        return tv_map[clean]
     
+    if clean in ["NIFTY", "NIFTY50", "NIFTY 50"]:
+        return "NSE:NIFTY", "^NSEI", "NIFTY 50", True
+    elif clean in ["BANKNIFTY", "BANK NIFTY"]:
+        return "NSE:BANKNIFTY", "^NSEBANK", "BANK NIFTY", True
+    elif clean in ["SENSEX", "BSESENSEX"]:
+        return "BSE:SENSEX", "^BSESN", "SENSEX", True
+    elif clean in ["INDIAVIX", "VIX"]:
+        return "NSE:INDIAVIX", "^INDIAVIX", "INDIA VIX", True
+        
     clean_sym = clean.replace(".NS", "").replace(".BO", "")
-    return f"NSE:{clean_sym}"
-
-def get_yf_symbol(user_input):
-    """Yahoo Finance चा सिम्बॉल"""
-    clean = user_input.strip().upper()
-    yf_map = {
-        "NIFTY": "^NSEI",
-        "NIFTY 50": "^NSEI",
-        "NIFTY50": "^NSEI",
-        "BANK NIFTY": "^NSEBANK",
-        "BANKNIFTY": "^NSEBANK",
-        "SENSEX": "^BSESN",
-        "INDIA VIX": "^INDIAVIX"
-    }
-    if clean in yf_map:
-        return yf_map[clean]
-    clean_stock = clean.replace(" ", "").replace(".NS", "").replace(".BO", "")
-    return clean_stock + ".NS"
+    return f"NSE:{clean_sym}", f"{clean_sym}.NS", clean_sym, False
 
 def render_tradingview_chart(tv_symbol):
-    """Demat ॲपसारखा Full Live TradingView Chart Widget"""
+    """TradingView Live Interactive Chart (Dynamic Key Fix)"""
+    container_id = f"tv_widget_{tv_symbol.replace(':', '_')}"
     html_code = f"""
     <div class="tradingview-widget-container" style="height:550px;width:100%">
-      <div id="tradingview_chart_element" style="height:calc(100% - 32px);width:100%"></div>
+      <div id="{container_id}" style="height:calc(100% - 32px);width:100%"></div>
       <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
       <script type="text/javascript">
       new TradingView.widget({{
@@ -72,12 +54,12 @@ def render_tradingview_chart(tv_symbol):
         "toolbar_bg": "#f1f3f6",
         "enable_publishing": false,
         "allow_symbol_change": true,
-        "container_id": "tradingview_chart_element"
+        "container_id": "{container_id}"
       }});
       </script>
     </div>
     """
-    components.html(html_code, height=560)
+    components.html(html_code, height=560, key=f"tv_chart_{tv_symbol}")
 
 # --- १. मुख्य मार्केट हेडर ---
 st.subheader("📊 Live Market Overview")
@@ -115,14 +97,12 @@ for i, (name, val) in enumerate(indices.items()):
 
 st.divider()
 
-# --- २. Universal Search + Demat Live Chart Engine ---
+# --- २. Search + Chart Engine ---
 st.subheader("🔍 Demat Real-Time Live Chart & AI Signal Engine")
-search_input = st.text_input("कोणताही स्टॉक किंवा इंडेक्स टाका (उदा. NIFTY 50, BANK NIFTY, RELIANCE, TATAMOTORS, INFY):", value="NIFTY 50")
+search_input = st.text_input("कोणताही स्टॉक किंवा इंडेक्स टाका (उदा. NIFTY 50, BANK NIFTY, RELIANCE, TATAMOTORS, INFY):", value="BANK NIFTY")
 
 if search_input:
-    tv_sym = get_tv_symbol(search_input)
-    yf_sym = get_yf_symbol(search_input)
-    display_name = search_input.strip().upper()
+    tv_sym, yf_sym, display_name, is_index = get_symbols(search_input)
     
     st.markdown(f"### 📈 **{tv_sym}** - Demat Live Interactive Chart")
     render_tradingview_chart(tv_sym)
@@ -131,7 +111,7 @@ if search_input:
     
     st.markdown(f"### 🤖 AI Agent Deep Research Analysis for **{display_name}**")
     
-    with st.spinner("AI Agent बाजाराचे तांत्रिक व न्यूज विश्लेषण करत आहे..."):
+    with st.spinner("AI Agent रिअल-टाईम प्राईस ॲक्शन विश्लेषित करत आहे..."):
         try:
             df15 = yf.download(yf_sym, period="5d", interval="15m", progress=False)
             dfd = yf.download(yf_sym, period="1mo", interval="1d", progress=False)
@@ -139,10 +119,13 @@ if search_input:
             if isinstance(df15.columns, pd.MultiIndex): df15.columns = df15.columns.get_level_values(0)
             if isinstance(dfd.columns, pd.MultiIndex): dfd.columns = dfd.columns.get_level_values(0)
             
-            trade_setup = build_scanner_row(display_name, df15, dfd)
+            if is_index:
+                trade_setup = analyze_index(yf_sym, df15, display_name)
+            else:
+                trade_setup = build_scanner_row(display_name, df15, dfd)
             
             if trade_setup:
-                action_emoji = "🟢 BUY / CALL" if "BUY" in trade_setup['action'] else "🔴 SELL / PUT"
+                action_emoji = "🟢 " + trade_setup['action'] if "BUY" in trade_setup['action'] or "CALL" in trade_setup['action'] else "🔴 " + trade_setup['action']
                 st.markdown(f"#### AI Trade Recommendation: **{action_emoji}**")
                 
                 m1, m2, m3, m4, m5 = st.columns(5)
@@ -157,7 +140,7 @@ if search_input:
                 for r in trade_setup['reasons']:
                     st.write(f"• {r}")
             else:
-                st.warning("या स्टॉकचा रिअल-टाईम डेटा लोड होण्यात अडचण येत आहे. कृपया सिम्बॉल पुन्हा तपासा.")
+                st.warning("डेटा लोड होण्यात अडचण येत आहे. सिम्बॉल पुन्हा तपासा.")
                 
         except Exception as err:
             st.error(f"विश्लेषण करताना एरर आला: {err}")
