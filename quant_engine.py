@@ -41,20 +41,41 @@ def add_indicators(df):
     return df
 
 def market_regime(df):
-    """Streamlit Dashboard साठी Market Regime (Dict Return)"""
-    default_res = {"regime": "NEUTRAL", "confidence": 50, "score": 50}
+    """Streamlit Dashboard साठी Market Regime (सर्व आवश्यक कीजसह डिक्शनरी)"""
+    default_res = {
+        "regime": "NEUTRAL", 
+        "confidence": 50, 
+        "score": 50, 
+        "bull": 50, 
+        "bear": 50
+    }
     if df is None or not isinstance(df, pd.DataFrame) or df.empty or len(df) < 20:
         return default_res
     
     df = add_indicators(df)
     l = df.iloc[-1]
     
-    if l['Close'] > l['EMA_50'] and l['RSI'] > 55:
-        return {"regime": "BULLISH", "confidence": 80, "score": 80}
-    elif l['Close'] < l['EMA_50'] and l['RSI'] < 45:
-        return {"regime": "BEARISH", "confidence": 80, "score": 80}
+    bull = 0
+    bear = 0
+    if l['Close'] > l['EMA_21']: bull += 30
+    else: bear += 30
+    if l['Close'] > l['VWAP']: bull += 25
+    else: bear += 25
+    if l['RSI'] > 55: bull += 25
+    elif l['RSI'] < 45: bear += 25
+    if l['MACD_HIST'] > 0: bull += 20
+    else: bear += 20
     
-    return default_res
+    reg_str = "BULLISH" if bull > bear else ("BEARISH" if bear > bull else "NEUTRAL")
+    score = max(bull, bear)
+    
+    return {
+        "regime": reg_str,
+        "confidence": score,
+        "score": score,
+        "bull": bull,
+        "bear": bear
+    }
 
 def sector_strength(sector_data=None):
     """Streamlit Dashboard साठी Sector Strength"""
