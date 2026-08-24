@@ -38,22 +38,21 @@ def send_index_update(indices_data, news_list):
     send_telegram_message(text)
 
 def send_top_stocks(stocks):
-    text = "<b>🚨 AI AGENT: TOP INTRADAY CALLS</b>\n"
-    text += "<i>Multi-Timeframe & Risk Management Engine</i>\n\n"
+    text = "<b>🚨 AI AGENT: TOP HIGH-CONVICTION CALLS</b>\n"
+    text += "<i>24/7 Deep Research & Multi-Timeframe Study Engine</i>\n\n"
     
     for i, s in enumerate(stocks[:5], 1):
         emoji = "🟢" if s['action'] == "BUY" else "🔴"
         reasons_text = "\n".join([f"  • {r}" for r in s['reasons']])
         
         text += f"""<b>#{i} {emoji} {html.escape(s['symbol'])}</b> ({s['sector']})
-• <b>Action:</b> {s['action']} | <b>Confidence:</b> {s['confidence']}%
-• <b>Entry Price:</b> ₹{s['price']}
-• <b>Qty (कमाल शेअर्स):</b> {s['qty']} Qty
+• <b>Action:</b> {s['action']} | <b>AI Confidence:</b> {s['confidence']}%
+• <b>Entry Level:</b> ₹{s['price']}
 • <b>Stop Loss (SL):</b> ₹{s['sl']}
 • <b>Target 1:</b> ₹{s['tp1']} | <b>Target 2:</b> ₹{s['tp2']}
-<b>💡 AI Reasoning (स्टॉक का निवडला?):</b>
+<b>💡 AI Deep Study Reasoning (हा कॉल का दिला?):</b>
 {reasons_text}
 ----------------------------------------\n"""
         
-    text += "\n<i>⚠️ Intraday Note: Position 3:15 PM च्या आधी स्क्वेअर-ऑफ करा.</i>"
+    text += "\n<i>⚠️ Intraday Trading Note: 3:15 PM च्या आधी पोझिशन स्क्वेअर-ऑफ करा.</i>"
     send_telegram_message(text)

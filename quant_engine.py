@@ -23,7 +23,7 @@ def add_indicators(df):
     df['RSI'] = 100 - (100 / (1 + rs))
     df['RSI'] = df['RSI'].fillna(50)
     
-    # ATR Calculation (मायनस/झिरो एरर फिक्स)
+    # ATR Calculation
     high_low = df['High'] - df['Low']
     high_close = np.abs(df['High'] - df['Close'].shift())
     low_close = np.abs(df['Low'] - df['Close'].shift())
@@ -40,24 +40,14 @@ def add_indicators(df):
     
     return df
 
-def calculate_position_size(entry, sl, total_capital=100000, risk_per_trade_pct=1.5):
-    """₹1,00,000 कॅपिटलनुसार शेअरची संख्या ठरवणे"""
-    risk_amount = total_capital * (risk_per_trade_pct / 100)
-    risk_per_share = abs(entry - sl)
-    if risk_per_share <= 0:
-        return 1
-    qty = int(risk_amount / risk_per_share)
-    return max(qty, 1)
-
 def analyze_index(symbol, df, name):
-    """NIFTY, BANK NIFTY, SENSEX इंडेक्स विश्लेषण"""
+    """NIFTY, BANK NIFTY, SENSEX इंडेक्स सखोल अभ्यास"""
     if df.empty or len(df) < 20:
         return None
     x = add_indicators(df)
     l = x.iloc[-1]
     price = float(l["Close"])
     
-    # ATR फिक्स (किमान ०.५% बफर)
     raw_atr = l["ATR"] if pd.notna(l["ATR"]) else 0
     atr_val = max(float(raw_atr), price * 0.005)
     
@@ -101,7 +91,7 @@ def analyze_index(symbol, df, name):
     }
 
 def build_scanner_row(symbol, df_15m, df_daily, sector="EQUITY"):
-    """स्टॉक कॉल्स आणि रिस्क मॅनेजमेंट"""
+    """२४ तास डीप रिसर्च आणि अचूक लेव्हल्स जनरेटर"""
     if df_15m.empty or len(df_15m) < 20:
         return None
 
@@ -109,11 +99,10 @@ def build_scanner_row(symbol, df_15m, df_daily, sector="EQUITY"):
     l = df_15m.iloc[-1]
     price = float(l["Close"])
     
-    # ATR फिक्स (किमान ०.८% बफर)
     raw_atr = l["ATR"] if pd.notna(l["ATR"]) else 0
     atr = max(float(raw_atr), price * 0.008)
 
-    # Daily Chart Trend
+    # Daily Chart Macro Trend Study
     daily_trend = "BULLISH"
     if not df_daily.empty and len(df_daily) >= 20:
         df_daily_ind = add_indicators(df_daily)
@@ -124,35 +113,46 @@ def build_scanner_row(symbol, df_15m, df_daily, sector="EQUITY"):
     bull_score = 0
     bear_score = 0
 
+    # 1. Macro Trend Analysis
     if daily_trend == "BULLISH":
         bull_score += 30
-        reasons.append("Daily Trend: अपट्रेंड (Daily EMA 50 वर)")
+        reasons.append("Daily Macro Trend: अपट्रेंड (Daily EMA 50 वर आधारित)")
     else:
         bear_score += 30
-        reasons.append("Daily Trend: डाउनट्रेंड (Daily EMA 50 खाली)")
+        reasons.append("Daily Macro Trend: डाउनट्रेंड (Daily EMA 50 खाली आधारित)")
 
+    # 2. Institutional VWAP Tracking
     if price > l["VWAP"]:
         bull_score += 25
-        reasons.append("VWAP: संस्थात्मक खरेदीदार (Price > VWAP)")
+        reasons.append("Smart Money Flow: संस्थात्मक खरेदीदार ऍक्टिव्ह (Price > VWAP)")
     else:
         bear_score += 25
-        reasons.append("VWAP: सेलिंग प्रेशर (Price < VWAP)")
+        reasons.append("Smart Money Flow: सेलिंग प्रेशर ऍक्टिव्ह (Price < VWAP)")
 
+    # 3. RSI Strength & Momentum
     rsi = float(l["RSI"])
     if rsi > 55:
         bull_score += 25
-        reasons.append(f"RSI Momentum: स्ट्रॉंग बुलिश झोन ({round(rsi,1)})")
+        reasons.append(f"RSI Momentum: अपवर्ड स्ट्रेंथ ({round(rsi,1)})")
     elif rsi < 45:
         bear_score += 25
-        reasons.append(f"RSI Momentum: बेअरिश प्रेशर ({round(rsi,1)})")
+        reasons.append(f"RSI Momentum: डाऊनवर्ड प्रेशर ({round(rsi,1)})")
 
-    if bull_score >= 55 and daily_trend == "BULLISH":
+    # 4. Moving Average Crossover Signal
+    if l["Close"] > l["EMA_21"]:
+        bull_score += 20
+        reasons.append("Short-term EMA: 21 EMA वर स्ट्रॉंग सपोर्ट ब्रेकआउट")
+    else:
+        bear_score += 20
+        reasons.append("Short-term EMA: 21 EMA खाली रेझिस्टन्स रिजेक्शन")
+
+    if bull_score >= 60 and daily_trend == "BULLISH":
         action = "BUY"
         sl = round(price - (1.2 * atr), 2)
         tp1 = round(price + (1.5 * atr), 2)
         tp2 = round(price + (2.5 * atr), 2)
         confidence = min(bull_score, 95)
-    elif bear_score >= 55 and daily_trend == "BEARISH":
+    elif bear_score >= 60 and daily_trend == "BEARISH":
         action = "SELL"
         sl = round(price + (1.2 * atr), 2)
         tp1 = round(price - (1.5 * atr), 2)
@@ -160,8 +160,6 @@ def build_scanner_row(symbol, df_15m, df_daily, sector="EQUITY"):
         confidence = min(bear_score, 95)
     else:
         return None
-
-    qty = calculate_position_size(price, sl)
 
     return {
         "symbol": symbol,
@@ -173,6 +171,5 @@ def build_scanner_row(symbol, df_15m, df_daily, sector="EQUITY"):
         "sl": sl,
         "tp1": tp1,
         "tp2": tp2,
-        "qty": qty,
-        "reasons": reasons[:3]
+        "reasons": reasons[:4]
     }
