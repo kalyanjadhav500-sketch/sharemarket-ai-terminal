@@ -33,10 +33,10 @@ if selected_tab == "Index Derivatives Engine":
             
             if res:
                 col1, col2, col3, col4 = st.columns(4)
-                col1.metric("Current Price", f"₹{res['price']}")
-                col2.metric("Execution Action", res['action'])
-                col3.metric("AI Confidence Score", f"{res['confidence']}%")
-                col4.metric("Recommended Size", f"{res['position_size']} Lot(s)")
+                col1.metric("Current Price", f"₹{res.get('price', 0.0)}")
+                col2.metric("Execution Action", res.get('action', 'N/A'))
+                col3.metric("AI Confidence Score", f"{res.get('confidence', 0)}%")
+                col4.metric("Recommended Size", f"{res.get('position_size', 1)} Lot(s)")
 
                 st.markdown("---")
                 
@@ -47,10 +47,10 @@ if selected_tab == "Index Derivatives Engine":
                 with col_a:
                     st.write("**Targets & Stop Loss**")
                     st.json({
-                        "Entry Price": res['entry'],
-                        "Target 1": res['tp1'],
-                        "Target 2": res['tp2'],
-                        "Stop Loss": res['sl'],
+                        "Entry Price": res.get('entry', 0.0),
+                        "Target 1": res.get('tp1', 0.0),
+                        "Target 2": res.get('tp2', 0.0),
+                        "Stop Loss": res.get('sl', 0.0),
                         "Risk / Reward Ratio": "1 : 2.8+"
                     })
                     
