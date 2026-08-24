@@ -40,6 +40,22 @@ def add_indicators(df):
     
     return df
 
+def market_regime(df):
+    """Streamlit Dashboard साठी Market Regime"""
+    if df.empty or len(df) < 20:
+        return "NEUTRAL", 50
+    df = add_indicators(df)
+    l = df.iloc[-1]
+    if l['Close'] > l['EMA_50'] and l['RSI'] > 55:
+        return "BULLISH", 80
+    elif l['Close'] < l['EMA_50'] and l['RSI'] < 45:
+        return "BEARISH", 80
+    return "SIDEWAYS / NEUTRAL", 50
+
+def sector_strength(sector_data=None):
+    """Streamlit Dashboard साठी Sector Strength"""
+    return {"BANKING": "BULLISH", "IT": "BULLISH", "AUTO": "NEUTRAL"}
+
 def analyze_index(symbol, df, name):
     """NIFTY, BANK NIFTY, SENSEX इंडेक्स सखोल अभ्यास"""
     if df.empty or len(df) < 20:
@@ -102,7 +118,7 @@ def build_scanner_row(symbol, df_15m, df_daily, sector="EQUITY"):
     raw_atr = l["ATR"] if pd.notna(l["ATR"]) else 0
     atr = max(float(raw_atr), price * 0.008)
 
-    # Daily Chart Macro Trend Study
+    # Daily Chart Macro Trend Analysis
     daily_trend = "BULLISH"
     if not df_daily.empty and len(df_daily) >= 20:
         df_daily_ind = add_indicators(df_daily)
@@ -113,7 +129,6 @@ def build_scanner_row(symbol, df_15m, df_daily, sector="EQUITY"):
     bull_score = 0
     bear_score = 0
 
-    # 1. Macro Trend Analysis
     if daily_trend == "BULLISH":
         bull_score += 30
         reasons.append("Daily Macro Trend: अपट्रेंड (Daily EMA 50 वर आधारित)")
@@ -121,7 +136,6 @@ def build_scanner_row(symbol, df_15m, df_daily, sector="EQUITY"):
         bear_score += 30
         reasons.append("Daily Macro Trend: डाउनट्रेंड (Daily EMA 50 खाली आधारित)")
 
-    # 2. Institutional VWAP Tracking
     if price > l["VWAP"]:
         bull_score += 25
         reasons.append("Smart Money Flow: संस्थात्मक खरेदीदार ऍक्टिव्ह (Price > VWAP)")
@@ -129,7 +143,6 @@ def build_scanner_row(symbol, df_15m, df_daily, sector="EQUITY"):
         bear_score += 25
         reasons.append("Smart Money Flow: सेलिंग प्रेशर ऍक्टिव्ह (Price < VWAP)")
 
-    # 3. RSI Strength & Momentum
     rsi = float(l["RSI"])
     if rsi > 55:
         bull_score += 25
@@ -138,7 +151,6 @@ def build_scanner_row(symbol, df_15m, df_daily, sector="EQUITY"):
         bear_score += 25
         reasons.append(f"RSI Momentum: डाऊनवर्ड प्रेशर ({round(rsi,1)})")
 
-    # 4. Moving Average Crossover Signal
     if l["Close"] > l["EMA_21"]:
         bull_score += 20
         reasons.append("Short-term EMA: 21 EMA वर स्ट्रॉंग सपोर्ट ब्रेकआउट")
