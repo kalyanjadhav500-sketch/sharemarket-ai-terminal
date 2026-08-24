@@ -8,7 +8,7 @@ def fetch_market_news():
     url = "https://news.google.com/rss/search?q=Indian+Stock+Market+NSE+NIFTY&hl=en-IN&gl=IN&ceid=IN:en"
     headlines = []
     try:
-        r = requests.get(url, timeout=8, verify=False)  # SSL एरर फिक्स
+        r = requests.get(url, timeout=8, verify=False)
         if r.ok:
             root = ET.fromstring(r.text)
             for item in root.findall('.//item')[:3]:
