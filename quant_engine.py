@@ -11,9 +11,9 @@ def add_indicators(df):
     df['EMA_50'] = df['Close'].ewm(span=50, adjust=False).mean()
     
     # VWAP Calculation
-    v = df['Volume']
+    v = df['Volume'].replace(0, 1)
     tp = (df['High'] + df['Low'] + df['Close']) / 3
-    df['VWAP'] = (tp * v).cumsum() / v.cumsum().replace(0, 1)
+    df['VWAP'] = (tp * v).cumsum() / v.cumsum()
     
     # RSI Calculation
     delta = df['Close'].diff()
@@ -23,13 +23,13 @@ def add_indicators(df):
     df['RSI'] = 100 - (100 / (1 + rs))
     df['RSI'] = df['RSI'].fillna(50)
     
-    # ATR Calculation
+    # ATR Calculation (मायनस/झिरो एरर फिक्स)
     high_low = df['High'] - df['Low']
     high_close = np.abs(df['High'] - df['Close'].shift())
     low_close = np.abs(df['Low'] - df['Close'].shift())
     ranges = pd.concat([high_low, high_close, low_close], axis=1)
     true_range = np.max(ranges, axis=1)
-    df['ATR'] = true_range.rolling(14).mean().fillna(df['Close'] * 0.008)
+    df['ATR'] = true_range.rolling(14).mean()
     
     # MACD Calculation
     exp1 = df['Close'].ewm(span=12, adjust=False).mean()
@@ -41,7 +41,7 @@ def add_indicators(df):
     return df
 
 def calculate_position_size(entry, sl, total_capital=100000, risk_per_trade_pct=1.5):
-    """₹1,00,000 कॅपिटल आणि 1.5% रिस्कनुसार किती शेअर्स घ्यावेत हे ठरवते"""
+    """₹1,00,000 कॅपिटलनुसार शेअरची संख्या ठरवणे"""
     risk_amount = total_capital * (risk_per_trade_pct / 100)
     risk_per_share = abs(entry - sl)
     if risk_per_share <= 0:
@@ -50,13 +50,16 @@ def calculate_position_size(entry, sl, total_capital=100000, risk_per_trade_pct=
     return max(qty, 1)
 
 def analyze_index(symbol, df, name):
-    """NIFTY, BANK NIFTY, SENSEX चे सखोल विश्लेषण"""
+    """NIFTY, BANK NIFTY, SENSEX इंडेक्स विश्लेषण"""
     if df.empty or len(df) < 20:
         return None
     x = add_indicators(df)
     l = x.iloc[-1]
     price = float(l["Close"])
-    atr_val = float(l["ATR"]) if pd.notna(l["ATR"]) and l["ATR"] > 0 else price * 0.005
+    
+    # ATR फिक्स (किमान ०.५% बफर)
+    raw_atr = l["ATR"] if pd.notna(l["ATR"]) else 0
+    atr_val = max(float(raw_atr), price * 0.005)
     
     bull = 0
     bear = 0
@@ -72,12 +75,12 @@ def analyze_index(symbol, df, name):
     if bull >= 60 and bull > bear:
         action = "BUY / CALL"
         entry = price
-        sl = price - (1.0 * atr_val)
+        sl = price - (1.2 * atr_val)
         tp = price + (1.8 * atr_val)
     elif bear >= 60 and bear > bull:
         action = "SELL / PUT"
         entry = price
-        sl = price + (1.0 * atr_val)
+        sl = price + (1.2 * atr_val)
         tp = price - (1.8 * atr_val)
     else:
         action = "NEUTRAL (RANGE)"
@@ -98,16 +101,19 @@ def analyze_index(symbol, df, name):
     }
 
 def build_scanner_row(symbol, df_15m, df_daily, sector="EQUITY"):
-    """मल्टी-टाईमफ्रेम, रिस्क कॅल्क्युलेटर आणि कारणांसह स्टॉक फिल्टर"""
+    """स्टॉक कॉल्स आणि रिस्क मॅनेजमेंट"""
     if df_15m.empty or len(df_15m) < 20:
         return None
 
     df_15m = add_indicators(df_15m)
     l = df_15m.iloc[-1]
     price = float(l["Close"])
-    atr = float(l["ATR"]) if pd.notna(l["ATR"]) and l["ATR"] > 0 else price * 0.005
+    
+    # ATR फिक्स (किमान ०.८% बफर)
+    raw_atr = l["ATR"] if pd.notna(l["ATR"]) else 0
+    atr = max(float(raw_atr), price * 0.008)
 
-    # Daily Chart वरून ट्रेंड ट्रॅक करणे
+    # Daily Chart Trend
     daily_trend = "BULLISH"
     if not df_daily.empty and len(df_daily) >= 20:
         df_daily_ind = add_indicators(df_daily)
