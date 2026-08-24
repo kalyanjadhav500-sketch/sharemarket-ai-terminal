@@ -106,10 +106,15 @@ def analyze_index(symbol, df, name):
         "bias": "BULLISH" if bull > bear else ("BEARISH" if bear > bull else "NEUTRAL")
     }
 
-def build_scanner_row(symbol, df_15m, df_daily, sector="EQUITY"):
-    """२४ तास डीप रिसर्च आणि अचूक लेव्हल्स जनरेटर"""
-    if df_15m.empty or len(df_15m) < 20:
+def build_scanner_row(symbol, df_15m, df_daily=None, *args, **kwargs):
+    """२४ तास डीप रिसर्च आणि अचूक लेव्हल्स जनरेटर (Dashboard + Telegram कंपॅटिबल)"""
+    if df_15m is None or not isinstance(df_15m, pd.DataFrame) or df_15m.empty or len(df_15m) < 20:
         return None
+
+    # sector किंवा इतर मल्टिपल पॅरामीटर्स हाताळणी
+    sector = kwargs.get("sector", "EQUITY")
+    if args and len(args) >= 2 and isinstance(args[-1], str):
+        sector = args[-1]
 
     df_15m = add_indicators(df_15m)
     l = df_15m.iloc[-1]
@@ -120,7 +125,7 @@ def build_scanner_row(symbol, df_15m, df_daily, sector="EQUITY"):
 
     # Daily Chart Macro Trend Analysis
     daily_trend = "BULLISH"
-    if not df_daily.empty and len(df_daily) >= 20:
+    if df_daily is not None and isinstance(df_daily, pd.DataFrame) and not df_daily.empty and len(df_daily) >= 20:
         df_daily_ind = add_indicators(df_daily)
         if df_daily_ind.iloc[-1]["Close"] < df_daily_ind.iloc[-1]["EMA_50"]:
             daily_trend = "BEARISH"
@@ -183,5 +188,6 @@ def build_scanner_row(symbol, df_15m, df_daily, sector="EQUITY"):
         "sl": sl,
         "tp1": tp1,
         "tp2": tp2,
+        "qty": 1,
         "reasons": reasons[:4]
     }
