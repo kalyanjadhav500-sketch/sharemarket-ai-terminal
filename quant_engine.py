@@ -172,7 +172,7 @@ def analyze_index(symbol, df_15m, display_name=None):
     return {
         "name": name, "symbol": symbol, "trend": trend, "price": round(price, 2),
         "action": action, "entry": round(price, 2), "sl": sl, "tp1": tp1, "tp2": tp2,
-        "rsi": round(rsi, 1), "confidence": confidence, "reasons": reasons
+        "tp": tp1, "rsi": round(rsi, 1), "confidence": confidence, "reasons": reasons
     }
 
 def build_scanner_row(symbol, df_15m, df_daily=None, *args, **kwargs):
@@ -238,5 +238,5 @@ def build_scanner_row(symbol, df_15m, df_daily=None, *args, **kwargs):
     return {
         "name": symbol, "symbol": symbol, "trend": trend, "price": round(price, 2),
         "action": action, "confidence": confidence, "entry": round(price, 2),
-        "sl": sl, "tp1": tp1, "tp2": tp2, "reasons": reasons
+        "sl": sl, "tp1": tp1, "tp2": tp2, "tp": tp1, "reasons": reasons
     }
