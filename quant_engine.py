@@ -93,6 +93,7 @@ def analyze_index(symbol, df_15m, display_name=None):
         return None
     
     name = display_name if display_name else symbol
+    clean_symbol = symbol.replace(".NS", "")
     
     # Macro Daily Trend Analysis
     try:
@@ -170,9 +171,9 @@ def analyze_index(symbol, df_15m, display_name=None):
         confidence = 98
 
     return {
-        "name": name, "symbol": symbol, "trend": trend, "bias": trend, "price": round(price, 2),
+        "name": name, "symbol": clean_symbol, "trend": trend, "bias": trend, "price": round(price, 2),
         "action": action, "entry": round(price, 2), "sl": sl, "tp1": tp1, "tp2": tp2,
-        "tp": tp1, "rsi": round(rsi, 1), "confidence": confidence, "reasons": reasons
+        "tp": tp1, "rsi": round(rsi, 1), "confidence": confidence, "sector": "Index", "reasons": reasons
     }
 
 def build_scanner_row(symbol, df_15m, df_daily=None, *args, **kwargs):
@@ -180,7 +181,9 @@ def build_scanner_row(symbol, df_15m, df_daily=None, *args, **kwargs):
     if df_15m is None or not isinstance(df_15m, pd.DataFrame) or df_15m.empty or len(df_15m) < 10:
         return None
 
-    yf_ticker = f"{symbol}.NS"
+    clean_symbol = symbol.replace(".NS", "")
+    yf_ticker = f"{clean_symbol}.NS"
+    sector = kwargs.get("sector", "Equity")
     
     fund_score, fund_desc = get_institutional_fundamentals(yf_ticker)
     news_score, news_desc = fetch_live_news_sentiment(yf_ticker)
@@ -236,7 +239,7 @@ def build_scanner_row(symbol, df_15m, df_daily=None, *args, **kwargs):
         confidence = 90
 
     return {
-        "name": symbol, "symbol": symbol, "trend": trend, "bias": trend, "price": round(price, 2),
+        "name": clean_symbol, "symbol": clean_symbol, "trend": trend, "bias": trend, "price": round(price, 2),
         "action": action, "confidence": confidence, "entry": round(price, 2),
-        "sl": sl, "tp1": tp1, "tp2": tp2, "tp": tp1, "reasons": reasons
+        "sl": sl, "tp1": tp1, "tp2": tp2, "tp": tp1, "sector": sector, "reasons": reasons
     }
