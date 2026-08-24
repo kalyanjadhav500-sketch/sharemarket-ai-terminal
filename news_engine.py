@@ -1,39 +1,38 @@
-import urllib.parse
-import xml.etree.ElementTree as ET
-import requests
+import yfinance as yf
 
-def fetch_stock_news_sentiment(symbol):
-    """२४ तास थेट बातम्या स्कॅन करून सेंटीमेंट स्कोर तयार करणे"""
-    clean_sym = symbol.replace(".NS", "")
-    query = f"{clean_sym} share news India"
-    encoded_query = urllib.parse.quote(query)
-    url = f"https://news.google.com/rss/search?q={encoded_query}&hl=en-IN&gl=IN&ceid=IN:en"
-    
-    positive_words = ['growth', 'profit', 'buy', 'bullish', 'up', 'gain', 'high', 'partnership', 'approval', 'record']
-    negative_words = ['loss', 'fall', 'bearish', 'down', 'sell', 'drop', 'raid', 'penalty', 'decline', 'investigation']
-    
-    score = 0
-    headlines = []
-    
+def fetch_global_market_sentiment():
+    """Scans US, Asian, Forex, and GIFT Nifty markets for overnight bias."""
     try:
-        resp = requests.get(url, timeout=5)
-        if resp.status_code == 200:
-            root = ET.fromstring(resp.content)
-            for item in root.findall('.//item')[:5]:
-                title = item.find('title').text
-                headlines.append(title)
-                title_lower = title.lower()
-                
-                for p in positive_words:
-                    if p in title_lower: score += 10
-                for n in negative_words:
-                    if n in title_lower: score -= 10
-    except Exception:
-        pass
+        global_tickers = {
+            "GIFT_NIFTY": "^NSEI",
+            "S&P 500 (US)": "^GSPC",
+            "NASDAQ (US)": "^IXIC",
+            "NIKKEI 225 (Asia)": "^N225",
+            "USD/INR": "USDINR=X"
+        }
         
-    sentiment = "BULLISH" if score > 10 else ("BEARISH" if score < -10 else "NEUTRAL")
-    return {"sentiment": sentiment, "score": score, "headlines": headlines[:3]}
+        sentiment_data = {}
+        score = 0
+        
+        for name, symbol in global_tickers.items():
+            ticker = yf.Ticker(symbol)
+            hist = ticker.history(period="2d")
+            if len(hist) >= 2:
+                prev_close = hist['Close'].iloc[-2]
+                curr_price = hist['Close'].iloc[-1]
+                pct_change = ((curr_price - prev_close) / prev_close) * 100
+                sentiment_data[name] = round(pct_change, 2)
+                
+                # Scoring logic
+                if name != "USD/INR":
+                    if pct_change > 0.5: score += 1
+                    elif pct_change < -0.5: score -= 1
+                else: # Stronger Dollar is usually bearish for Indian Equities
+                    if pct_change > 0.3: score -= 1
+                    elif pct_change < -0.3: score += 1
 
-def fetch_market_news():
-    """auto_telegram_scanner साठी मार्केट न्यूज रॅपर फंक्शन"""
-    return fetch_stock_news_sentiment("NIFTY 50")
+        bias = "BULLISH 🟢" if score > 0 else ("BEARISH 🔴" if score < 0 else "NEUTRAL ⚪")
+        return bias, sentiment_data
+    except Exception as e:
+        print(f"[News Engine Error]: {e}")
+        return "NEUTRAL ⚪", {}
