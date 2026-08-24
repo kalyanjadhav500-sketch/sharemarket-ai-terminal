@@ -19,6 +19,7 @@ st.markdown("""
 st.title("⚡ AI Quant Trading Terminal")
 
 def get_symbols(user_input):
+    """TradingView आणि Yahoo Finance सिम्बॉल मॅपिंग"""
     clean = user_input.strip().upper().replace(" ", "")
     if clean in ["NIFTY", "NIFTY50", "NIFTY 50"]:
         return "NSE:NIFTY", "^NSEI", "NIFTY 50", True
@@ -33,13 +34,12 @@ def get_symbols(user_input):
     return f"NSE:{clean_sym}", f"{clean_sym}.NS", clean_sym, False
 
 def render_tradingview_chart(tv_symbol):
-    container_id = f"tv_chart_{tv_symbol.replace(':', '_').replace('-', '_')}"
+    """TradingView Advanced Chart Embed (Fixes Invalid Symbol Error)"""
     html_code = f"""
     <div class="tradingview-widget-container" style="height:550px;width:100%">
-      <div id="{container_id}" style="height:calc(100% - 32px);width:100%"></div>
-      <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-      <script type="text/javascript">
-      new TradingView.widget({{
+      <div class="tradingview-widget-container__widget" style="height:520px;width:100%"></div>
+      <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
+      {{
         "autosize": true,
         "symbol": "{tv_symbol}",
         "interval": "15",
@@ -47,11 +47,11 @@ def render_tradingview_chart(tv_symbol):
         "theme": "dark",
         "style": "1",
         "locale": "en",
-        "toolbar_bg": "#f1f3f6",
         "enable_publishing": false,
         "allow_symbol_change": true,
-        "container_id": "{container_id}"
-      }});
+        "calendar": false,
+        "support_host": "https://www.tradingview.com"
+      }}
       </script>
     </div>
     """
@@ -121,19 +121,16 @@ if search_input:
                 trade_setup = build_scanner_row(display_name, df15, dfd)
             
             if trade_setup:
-                # सुस्पष्ट बॅनर - गोंधळ होणार नाही
                 if "BEARISH" in trade_setup['trend']:
                     st.error(f"🔴 **{trade_setup['trend']}** | Action: **{trade_setup['action']}**")
                 else:
                     st.success(f"🟢 **{trade_setup['trend']}** | Action: **{trade_setup['action']}**")
                 
-                # रो १: प्राईस आणि लेव्हल्स
                 c1, c2, c3 = st.columns(3)
                 c1.metric("Current Price", f"₹{trade_setup['price']}")
                 c2.metric("Entry Price", f"₹{trade_setup['entry']}")
                 c3.metric("Stop Loss (SL)", f"₹{trade_setup['sl']}")
                 
-                # रो २: टार्गेट्स आणि कॉन्फिडन्स (No Cutoff)
                 c4, c5, c6 = st.columns(3)
                 c4.metric("Target 1 (TP1)", f"₹{trade_setup['tp1']}")
                 c5.metric("Target 2 (TP2)", f"₹{trade_setup['tp2']}")
