@@ -1,10 +1,15 @@
 import pandas as pd
 import numpy as np
-from news_engine import fetch_stock_news_sentiment
+
+try:
+    from news_engine import fetch_stock_news_sentiment
+except ImportError:
+    def fetch_stock_news_sentiment(symbol):
+        return {"sentiment": "NEUTRAL", "score": 0, "headlines": []}
 
 def add_indicators(df):
-    """तांत्रिक इंडिकेटर्स (EMA, VWAP, RSI, ATR, MACD, Volume)"""
-    if df is None or not isinstance(df, pd.DataFrame) or df.empty or len(df) < 15:
+    """तांत्रिक इंडिकेटर्स (EMA, VWAP, RSI, ATR)"""
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty or len(df) < 10:
         return df
     
     df = df.copy()
@@ -32,8 +37,43 @@ def add_indicators(df):
     
     return df
 
+def analyze_index(symbol, df_15m, display_name=None):
+    """NIFTY / BANKNIFTY Options (CALL / PUT) साठी स्वतंत्र अनालिसिस"""
+    if df_15m is None or not isinstance(df_15m, pd.DataFrame) or df_15m.empty or len(df_15m) < 10:
+        return None
+    
+    name = display_name if display_name else symbol
+    df_15m = add_indicators(df_15m)
+    l = df_15m.iloc[-1]
+    price = float(l["Close"])
+    
+    raw_atr = l["ATR"] if pd.notna(l["ATR"]) else 0
+    atr = max(float(raw_atr), price * 0.004)
+    
+    vwap = float(l["VWAP"]) if pd.notna(l["VWAP"]) else price
+    rsi = float(l["RSI"]) if pd.notna(l["RSI"]) else 50
+    
+    if price >= vwap and rsi >= 48:
+        action = "BUY CALL (CE)"
+        sl = round(price - (1.0 * atr), 2)
+        tp = round(price + (1.8 * atr), 2)
+    else:
+        action = "BUY PUT (PE)"
+        sl = round(price + (1.0 * atr), 2)
+        tp = round(price - (1.8 * atr), 2)
+        
+    return {
+        "symbol": name,
+        "price": round(price, 2),
+        "action": action,
+        "entry": round(price, 2),
+        "sl": sl,
+        "tp": tp,
+        "confidence": 85
+    }
+
 def build_scanner_row(symbol, df_15m, df_daily=None, *args, **kwargs):
-    """360-Degree Deep AI Research for ANY Stock/Index without rigid limits"""
+    """360-Degree Deep AI Research for Equity Stocks"""
     if df_15m is None or not isinstance(df_15m, pd.DataFrame) or df_15m.empty or len(df_15m) < 10:
         return None
 
@@ -45,14 +85,12 @@ def build_scanner_row(symbol, df_15m, df_daily=None, *args, **kwargs):
     raw_atr = l["ATR"] if pd.notna(l["ATR"]) else 0
     atr = max(float(raw_atr), price * 0.005)
 
-    # १. डेली ट्रेंड चेक
     daily_trend = "BULLISH"
     if df_daily is not None and isinstance(df_daily, pd.DataFrame) and not df_daily.empty and len(df_daily) >= 15:
         df_daily_ind = add_indicators(df_daily)
         if df_daily_ind.iloc[-1]["Close"] < df_daily_ind.iloc[-1]["EMA_50"]:
             daily_trend = "BEARISH"
 
-    # २. २४/७ न्यूज सेंटीमेंट
     news_res = fetch_stock_news_sentiment(symbol)
     
     reasons = []
@@ -90,7 +128,6 @@ def build_scanner_row(symbol, df_15m, df_daily=None, *args, **kwargs):
     rsi = float(l["RSI"]) if pd.notna(l["RSI"]) else 50
     reasons.append(f"RSI Indicator: Current Index {round(rsi, 1)}")
 
-    # निर्णय (कोणत्याही मर्याेशिवाय AI चा थेट कौल)
     if bull_score >= bear_score:
         action = "BUY / CALL"
         sl = round(price - (1.0 * atr), 2)
