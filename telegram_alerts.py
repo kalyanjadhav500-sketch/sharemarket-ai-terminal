@@ -7,6 +7,7 @@ from config import SETTINGS
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 def send_telegram_message(text):
+    """टेलिग्रामवर मेसेज पाठवणे"""
     token = SETTINGS.telegram_token
     chat = SETTINGS.telegram_chat_id
     if not token or not chat:
@@ -24,7 +25,23 @@ def send_telegram_message(text):
         print(f"❌ Telegram Send Exception: {e}")
         return False
 
+def send_telegram_signal(signal_data):
+    """app.py आणि Streamlit साठी सिग्नल अलर्ट फंक्शन"""
+    if isinstance(signal_data, str):
+        return send_telegram_message(signal_data)
+    
+    emoji = "🟢" if signal_data.get('action') == "BUY" else "🔴"
+    text = f"""<b>{emoji} AI TRADING SIGNAL</b>
+<b>Symbol:</b> {signal_data.get('symbol')}
+<b>Action:</b> {signal_data.get('action')}
+<b>Entry:</b> ₹{signal_data.get('price')}
+<b>SL:</b> ₹{signal_data.get('sl')}
+<b>Target 1:</b> ₹{signal_data.get('tp1')} | <b>Target 2:</b> ₹{signal_data.get('tp2')}
+"""
+    return send_telegram_message(text)
+
 def send_index_update(indices_data, news_list):
+    """इंडेक्स रिपोर्ट पाठवणे"""
     news_text = "\n".join([f"• <i>{html.escape(n)}</i>" for n in news_list])
     text = f"<b>📊 15-MIN INDEX DEEP ANALYSIS</b>\n\n"
     for idx in indices_data:
@@ -38,6 +55,7 @@ def send_index_update(indices_data, news_list):
     send_telegram_message(text)
 
 def send_top_stocks(stocks):
+    """टॉप स्टॉक कॉल्स पाठवणे"""
     text = "<b>🚨 AI AGENT: TOP HIGH-CONVICTION CALLS</b>\n"
     text += "<i>24/7 Deep Research & Multi-Timeframe Study Engine</i>\n\n"
     
