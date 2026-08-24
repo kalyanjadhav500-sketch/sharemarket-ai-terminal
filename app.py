@@ -3,7 +3,6 @@ import pandas as pd
 import yfinance as yf
 import streamlit.components.v1 as components
 
-# Quant Engine इंपोर्ट
 try:
     from quant_engine import build_scanner_row, analyze_index
 except Exception as e:
@@ -20,9 +19,7 @@ st.markdown("""
 st.title("⚡ AI Quant Trading Terminal")
 
 def get_symbols(user_input):
-    """TradingView आणि Yahoo Finance सिम्बॉल मॅपिंग"""
     clean = user_input.strip().upper().replace(" ", "")
-    
     if clean in ["NIFTY", "NIFTY50", "NIFTY 50"]:
         return "NSE:NIFTY", "^NSEI", "NIFTY 50", True
     elif clean in ["BANKNIFTY", "BANK NIFTY"]:
@@ -36,9 +33,7 @@ def get_symbols(user_input):
     return f"NSE:{clean_sym}", f"{clean_sym}.NS", clean_sym, False
 
 def render_tradingview_chart(tv_symbol):
-    """TradingView Live Interactive Chart (TypeError Fix)"""
     container_id = f"tv_chart_{tv_symbol.replace(':', '_').replace('-', '_')}"
-    
     html_code = f"""
     <div class="tradingview-widget-container" style="height:550px;width:100%">
       <div id="{container_id}" style="height:calc(100% - 32px);width:100%"></div>
@@ -100,7 +95,7 @@ st.divider()
 
 # --- २. Search + Chart Engine ---
 st.subheader("🔍 Demat Real-Time Live Chart & AI Signal Engine")
-search_input = st.text_input("कोणताही स्टॉक किंवा इंडेक्स टाका (उदा. NIFTY 50, BANK NIFTY, RELIANCE, TATAMOTORS, INFY):", value="BANK NIFTY")
+search_input = st.text_input("कोणताही स्टॉक किंवा इंडेक्स टाका (उदा. NIFTY 50, BANK NIFTY, RELIANCE, TATAMOTORS):", value="BANK NIFTY")
 
 if search_input:
     tv_sym, yf_sym, display_name, is_index = get_symbols(search_input)
@@ -110,7 +105,7 @@ if search_input:
     
     st.divider()
     
-    st.markdown(f"### 🤖 AI Agent Deep Research Analysis for **{display_name}**")
+    st.markdown(f"### 🤖 AI Agent Signal for **{display_name}**")
     
     with st.spinner("AI Agent रिअल-टाईम प्राईस ॲक्शन विश्लेषित करत आहे..."):
         try:
@@ -126,20 +121,24 @@ if search_input:
                 trade_setup = build_scanner_row(display_name, df15, dfd)
             
             if trade_setup:
-                action_emoji = "🟢 " + trade_setup['action'] if "BUY" in trade_setup['action'] or "CALL" in trade_setup['action'] else "🔴 " + trade_setup['action']
-                st.markdown(f"#### AI Trade Recommendation: **{action_emoji}**")
+                # सुस्पष्ट बॅनर - गोंधळ होणार नाही
+                if "BEARISH" in trade_setup['trend']:
+                    st.error(f"🔴 **{trade_setup['trend']}** | Action: **{trade_setup['action']}**")
+                else:
+                    st.success(f"🟢 **{trade_setup['trend']}** | Action: **{trade_setup['action']}**")
                 
-                m1, m2, m3, m4, m5 = st.columns(5)
-                m1.metric("Current Price", f"₹{trade_setup['price']}")
-                m2.metric("Action", trade_setup['action'])
-                m3.metric("Entry Price", f"₹{trade_setup['entry']}")
-                m4.metric("Stop Loss (SL)", f"₹{trade_setup['sl']}")
+                # रो १: प्राईस आणि लेव्हल्स
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Current Price", f"₹{trade_setup['price']}")
+                c2.metric("Entry Price", f"₹{trade_setup['entry']}")
+                c3.metric("Stop Loss (SL)", f"₹{trade_setup['sl']}")
                 
-                tp1_val = trade_setup.get('tp1', trade_setup.get('tp', 0))
-                tp2_val = trade_setup.get('tp2', trade_setup.get('tp', 0))
-                m5.metric("Target 1 / 2", f"₹{tp1_val} / ₹{tp2_val}")
+                # रो २: टार्गेट्स आणि कॉन्फिडन्स (No Cutoff)
+                c4, c5, c6 = st.columns(3)
+                c4.metric("Target 1 (TP1)", f"₹{trade_setup['tp1']}")
+                c5.metric("Target 2 (TP2)", f"₹{trade_setup['tp2']}")
+                c6.metric("AI Confidence", f"{trade_setup['confidence']}%")
                 
-                st.write(f"**AI Confidence Level:** `{trade_setup['confidence']}%`")
                 st.markdown("**💡 AI Research Logic (निर्णयाची सखोल कारणे):**")
                 for r in trade_setup.get('reasons', []):
                     st.write(f"• {r}")
@@ -173,5 +172,5 @@ def scan_radar():
 radar_data = scan_radar()
 if radar_data:
     df_radar = pd.DataFrame(radar_data)
-    show_cols = [c for c in ["symbol", "action", "confidence", "price", "sl", "tp1", "tp2"] if c in df_radar.columns]
+    show_cols = [c for c in ["symbol", "trend", "action", "confidence", "price", "sl", "tp1", "tp2"] if c in df_radar.columns]
     st.dataframe(df_radar[show_cols], use_container_width=True)

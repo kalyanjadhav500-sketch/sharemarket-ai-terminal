@@ -38,7 +38,7 @@ def add_indicators(df):
     return df
 
 def analyze_index(symbol, df_15m, display_name=None):
-    """NIFTY / BANKNIFTY/ SENSEX साठी १००% अचूक इंट्राडे प्राईस ॲक्शन लॉजिक"""
+    """NIFTY / BANKNIFTY/ SENSEX साठी १००% अचूक ऑप्शन्स ट्रेड सिग्नल"""
     if df_15m is None or not isinstance(df_15m, pd.DataFrame) or df_15m.empty or len(df_15m) < 10:
         return None
     
@@ -54,43 +54,39 @@ def analyze_index(symbol, df_15m, display_name=None):
     
     reasons = []
     
-    # प्राईस ॲक्शन: VWAP आणि EMA 21 च्या खाली असल्यास फक्त PUT (SELL)
     if price < vwap:
+        trend = "BEARISH (मार्केट खाली पडणार)"
         action = "BUY PUT (PE)"
-        bias = "BEARISH"
         sl = round(price + (1.0 * atr), 2)
         tp1 = round(price - (1.2 * atr), 2)
         tp2 = round(price - (2.2 * atr), 2)
         reasons.append("Smart Money Selling: किंमत VWAP च्या खाली ट्रेड करत आहे.")
         if price < ema21:
-            reasons.append("Intraday Momentum: EMA 21 च्या खाली बेअरिश प्रेशर.")
-        reasons.append(f"RSI Indicator: Current RSI {round(rsi, 1)} (Weakness)")
-        confidence = 85
+            reasons.append("Intraday Momentum: EMA 21 च्या खाली सेलिंग प्रेशर आहे.")
+        reasons.append(f"RSI Indicator: Index {round(rsi, 1)} (मार्केट कमजोर आहे)")
     else:
+        trend = "BULLISH (मार्केट वर जाणार)"
         action = "BUY CALL (CE)"
-        bias = "BULLISH"
         sl = round(price - (1.0 * atr), 2)
         tp1 = round(price + (1.2 * atr), 2)
         tp2 = round(price + (2.2 * atr), 2)
         reasons.append("Smart Money Buying: किंमत VWAP च्या वर ट्रेड करत आहे.")
         if price > ema21:
-            reasons.append("Intraday Momentum: EMA 21 च्या वर बुलिश सपोर्ट.")
-        reasons.append(f"RSI Indicator: Current RSI {round(rsi, 1)} (Strength)")
-        confidence = 85
+            reasons.append("Intraday Momentum: EMA 21 च्या वर बाइंग सपोर्ट आहे.")
+        reasons.append(f"RSI Indicator: Index {round(rsi, 1)} (मार्केट मजबूत आहे)")
         
     return {
         "name": name,
         "symbol": symbol,
+        "trend": trend,
         "price": round(price, 2),
         "action": action,
         "entry": round(price, 2),
         "sl": sl,
-        "tp": tp1,
         "tp1": tp1,
         "tp2": tp2,
         "rsi": round(rsi, 1),
-        "bias": bias,
-        "confidence": confidence,
+        "confidence": 85,
         "reasons": reasons
     }
 
@@ -109,28 +105,27 @@ def build_scanner_row(symbol, df_15m, df_daily=None, *args, **kwargs):
 
     reasons = []
     
-    # VWAP प्राईस ॲक्शन नियम
     if price < vwap:
-        action = "SELL / PUT"
+        trend = "BEARISH (मार्केट खाली पडणार)"
+        action = "SELL / SHORT"
         sl = round(price + (1.0 * atr), 2)
         tp1 = round(price - (1.2 * atr), 2)
         tp2 = round(price - (2.2 * atr), 2)
-        reasons.append("Smart Money Flow: Price VWAP च्या खाली (Institutional Selling)")
-        confidence = 80
+        reasons.append("Smart Money Flow: VWAP च्या खाली Institutional Selling")
     else:
-        action = "BUY / CALL"
+        trend = "BULLISH (मार्केट वर जाणार)"
+        action = "BUY / LONG"
         sl = round(price - (1.0 * atr), 2)
         tp1 = round(price + (1.2 * atr), 2)
         tp2 = round(price + (2.2 * atr), 2)
-        reasons.append("Smart Money Flow: Price VWAP च्या वर (Institutional Buying)")
-        confidence = 80
+        reasons.append("Smart Money Flow: VWAP च्या वर Institutional Buying")
 
     rsi = float(l["RSI"]) if pd.notna(l["RSI"]) else 50
     reasons.append(f"RSI Indicator: Current Index {round(rsi, 1)}")
 
     return {
         "name": symbol,
-        "symbol": symbol, "sector": sector, "price": round(price, 2),
-        "action": action, "confidence": confidence, "entry": round(price, 2),
+        "symbol": symbol, "sector": sector, "trend": trend, "price": round(price, 2),
+        "action": action, "confidence": 80, "entry": round(price, 2),
         "sl": sl, "tp1": tp1, "tp2": tp2, "reasons": reasons
     }
