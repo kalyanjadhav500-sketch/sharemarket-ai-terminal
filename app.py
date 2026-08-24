@@ -1,173 +1,102 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-import streamlit.components.v1 as components
+from quant_engine import analyze_index, build_scanner_row
 
-try:
-    from quant_engine import build_scanner_row, analyze_index
-except Exception as e:
-    st.error(f"Import Error: {e}")
+st.set_page_config(
+    page_title="Quant AI Trading Terminal",
+    page_icon="🏛️",
+    layout="wide"
+)
 
-st.set_page_config(page_title="AI Trading Terminal", layout="wide")
+st.title("🏛️ Institutional Quant AI Trading Terminal")
+st.markdown("<b>Real-time Quantitative Analysis, Pivot Levels, Volume Surge & Risk Management Engine</b>", unsafe_allow_html=True)
 
-st.markdown("""
-    <style>
-    .stMetric { background-color: #1e222d; padding: 12px; border-radius: 8px; }
-    </style>
-""", unsafe_allow_html=True)
+# Sidebar Configuration
+st.sidebar.header("⚙️ Trading Parameters & Risk Shield")
+user_capital = st.sidebar.number_input("Account Capital (₹)", min_value=10000, value=100000, step=10000)
+risk_percentage = st.sidebar.slider("Risk Per Trade (%)", min_value=0.5, max_value=5.0, value=1.0, step=0.5)
 
-st.title("⚡ AI Quant Trading Terminal")
+selected_tab = st.sidebar.radio("Select Engine Mode", ["Index Derivatives Engine", "Equity Breakout Scanner"])
 
-def get_symbols(user_input):
-    """TradingView आणि Yahoo Finance सिम्बॉल मॅपिंग"""
-    clean = user_input.strip().upper().replace(" ", "")
-    if clean in ["NIFTY", "NIFTY50", "NIFTY 50"]:
-        return "NSE:NIFTY", "^NSEI", "NIFTY 50", True
-    elif clean in ["BANKNIFTY", "BANK NIFTY"]:
-        return "NSE:BANKNIFTY", "^NSEBANK", "BANK NIFTY", True
-    elif clean in ["SENSEX", "BSESENSEX"]:
-        return "BSE:SENSEX", "^BSESN", "SENSEX", True
-    elif clean in ["INDIAVIX", "VIX"]:
-        return "NSE:INDIAVIX", "^INDIAVIX", "INDIA VIX", True
+if selected_tab == "Index Derivatives Engine":
+    st.subheader("📈 Index Derivatives Quantitative Signals")
+    index_symbol = st.selectbox("Select Benchmark Index", ["^NSEI", "^NSEBANK"], format_func=lambda x: "NIFTY 50" if x == "^NSEI" else "BANK NIFTY")
+    
+    if st.button("Run Quantitative Analysis", type="primary"):
+        with st.spinner("Executing Multi-timeframe Institutional Confluence Analysis..."):
+            df_15m = yf.download(index_symbol, period="5d", interval="15m", progress=False)
+            if isinstance(df_15m.columns, pd.MultiIndex):
+                df_15m.columns = df_15m.columns.get_level_values(0)
+            
+            res = analyze_index(index_symbol, df_15m, display_name="NIFTY 50" if index_symbol == "^NSEI" else "BANK NIFTY")
+            
+            if res:
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Current Price", f"₹{res['price']}")
+                col2.metric("Execution Action", res['action'])
+                col3.metric("AI Confidence Score", f"{res['confidence']}%")
+                col4.metric("Recommended Size", f"{res['position_size']} Lot(s)")
+
+                st.markdown("---")
+                
+                # Pivots & Risk Metrics Table
+                st.subheader("🎯 Institutional Trade Levels & Risk Parameters")
+                col_a, col_b = st.columns(2)
+                
+                with col_a:
+                    st.write("**Targets & Stop Loss**")
+                    st.json({
+                        "Entry Price": res['entry'],
+                        "Target 1": res['tp1'],
+                        "Target 2": res['tp2'],
+                        "Stop Loss": res['sl'],
+                        "Risk / Reward Ratio": "1 : 2.8+"
+                    })
+                    
+                with col_b:
+                    st.write("**Daily Pivot Levels**")
+                    if res.get('pivots'):
+                        st.json(res['pivots'])
+                    else:
+                        st.info("Pivot calculations currently unavailable.")
+
+                st.subheader("💡 Quant Logic & Confluence Factors")
+                for r in res.get('reasons', []):
+                    st.markdown(f"- {r}", unsafe_allow_html=True)
+            else:
+                st.error("Unable to fetch index market data. Please retry after market hours.")
+
+elif selected_tab == "Equity Breakout Scanner":
+    st.subheader("⚡ Multi-Dimensional Equity Breakout Scanner")
+    watchlist = ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK", "SBIN", "BHARTIARTL", "TATASTEEL"]
+    
+    if st.button("Run Equity Scanner", type="primary"):
+        results = []
+        with st.spinner("Scanning equities for volume surge, pivots, and fundamental alignment..."):
+            for sym in watchlist:
+                yf_ticker = f"{sym}.NS"
+                df_15m = yf.download(yf_ticker, period="5d", interval="15m", progress=False)
+                if isinstance(df_15m.columns, pd.MultiIndex):
+                    df_15m.columns = df_15m.columns.get_level_values(0)
+                
+                row = build_scanner_row(sym, df_15m)
+                if row:
+                    results.append(row)
         
-    clean_sym = clean.replace(".NS", "").replace(".BO", "")
-    return f"NSE:{clean_sym}", f"{clean_sym}.NS", clean_sym, False
-
-def render_tradingview_chart(tv_symbol):
-    """TradingView Advanced Chart Embed (Fixes Invalid Symbol Error)"""
-    html_code = f"""
-    <div class="tradingview-widget-container" style="height:550px;width:100%">
-      <div class="tradingview-widget-container__widget" style="height:520px;width:100%"></div>
-      <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" async>
-      {{
-        "autosize": true,
-        "symbol": "{tv_symbol}",
-        "interval": "15",
-        "timezone": "Asia/Kolkata",
-        "theme": "dark",
-        "style": "1",
-        "locale": "en",
-        "enable_publishing": false,
-        "allow_symbol_change": true,
-        "calendar": false,
-        "support_host": "https://www.tradingview.com"
-      }}
-      </script>
-    </div>
-    """
-    components.html(html_code, height=560)
-
-# --- १. मुख्य मार्केट हेडर ---
-st.subheader("📊 Live Market Overview")
-col1, col2, col3, col4 = st.columns(4)
-
-@st.cache_data(ttl=30)
-def fetch_indices():
-    symbols = {
-        "NIFTY 50": "^NSEI",
-        "BANK NIFTY": "^NSEBANK",
-        "SENSEX": "^BSESN",
-        "INDIA VIX": "^INDIAVIX"
-    }
-    res = {}
-    for name, sym in symbols.items():
-        try:
-            df = yf.download(sym, period="2d", interval="15m", progress=False)
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
-            if not df.empty:
-                last_p = float(df['Close'].iloc[-1])
-                first_p = float(df['Close'].iloc[0])
-                chg = ((last_p - first_p) / first_p) * 100
-                res[name] = (last_p, chg)
-        except:
-            res[name] = (0.0, 0.0)
-    return res
-
-indices = fetch_indices()
-cols = [col1, col2, col3, col4]
-for i, (name, val) in enumerate(indices.items()):
-    price, chg = val
-    fmt_price = f"₹{price:,.2f}" if "VIX" not in name else f"{price:.2f}"
-    cols[i].metric(label=name, value=fmt_price, delta=f"{chg:+.2f}%")
-
-st.divider()
-
-# --- २. Search + Chart Engine ---
-st.subheader("🔍 Demat Real-Time Live Chart & AI Signal Engine")
-search_input = st.text_input("कोणताही स्टॉक किंवा इंडेक्स टाका (उदा. NIFTY 50, BANK NIFTY, RELIANCE, TATAMOTORS):", value="BANK NIFTY")
-
-if search_input:
-    tv_sym, yf_sym, display_name, is_index = get_symbols(search_input)
-    
-    st.markdown(f"### 📈 **{tv_sym}** - Demat Live Interactive Chart")
-    render_tradingview_chart(tv_sym)
-    
-    st.divider()
-    
-    st.markdown(f"### 🤖 AI Agent Signal for **{display_name}**")
-    
-    with st.spinner("AI Agent रिअल-टाईम प्राईस ॲक्शन विश्लेषित करत आहे..."):
-        try:
-            df15 = yf.download(yf_sym, period="5d", interval="15m", progress=False)
-            dfd = yf.download(yf_sym, period="1mo", interval="1d", progress=False)
-            
-            if isinstance(df15.columns, pd.MultiIndex): df15.columns = df15.columns.get_level_values(0)
-            if isinstance(dfd.columns, pd.MultiIndex): dfd.columns = dfd.columns.get_level_values(0)
-            
-            if is_index:
-                trade_setup = analyze_index(yf_sym, df15, display_name)
-            else:
-                trade_setup = build_scanner_row(display_name, df15, dfd)
-            
-            if trade_setup:
-                if "BEARISH" in trade_setup['trend']:
-                    st.error(f"🔴 **{trade_setup['trend']}** | Action: **{trade_setup['action']}**")
-                else:
-                    st.success(f"🟢 **{trade_setup['trend']}** | Action: **{trade_setup['action']}**")
-                
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Current Price", f"₹{trade_setup['price']}")
-                c2.metric("Entry Price", f"₹{trade_setup['entry']}")
-                c3.metric("Stop Loss (SL)", f"₹{trade_setup['sl']}")
-                
-                c4, c5, c6 = st.columns(3)
-                c4.metric("Target 1 (TP1)", f"₹{trade_setup['tp1']}")
-                c5.metric("Target 2 (TP2)", f"₹{trade_setup['tp2']}")
-                c6.metric("AI Confidence", f"{trade_setup['confidence']}%")
-                
-                st.markdown("**💡 AI Research Logic (निर्णयाची सखोल कारणे):**")
-                for r in trade_setup.get('reasons', []):
-                    st.write(f"• {r}")
-            else:
-                st.warning("डेटा लोड होण्यात अडचण येत आहे. सिम्बॉल पुन्हा तपासा.")
-                
-        except Exception as err:
-            st.error(f"विश्लेषण करताना एरर आला: {err}")
-
-st.divider()
-
-# --- ३. AI Radar ---
-st.subheader("🔥 Top AI Radar Watchlist")
-DEFAULT_STOCKS = ["RELIANCE", "TATAMOTORS", "INFY", "HDFCBANK", "TCS", "ICICIBANK", "SBIN"]
-
-@st.cache_data(ttl=60)
-def scan_radar():
-    results = []
-    for ticker in DEFAULT_STOCKS:
-        try:
-            d15 = yf.download(f"{ticker}.NS", period="5d", interval="15m", progress=False)
-            dd = yf.download(f"{ticker}.NS", period="1mo", interval="1d", progress=False)
-            if isinstance(d15.columns, pd.MultiIndex): d15.columns = d15.columns.get_level_values(0)
-            if isinstance(dd.columns, pd.MultiIndex): dd.columns = dd.columns.get_level_values(0)
-            
-            row = build_scanner_row(ticker, d15, dd)
-            if row: results.append(row)
-        except: pass
-    return results
-
-radar_data = scan_radar()
-if radar_data:
-    df_radar = pd.DataFrame(radar_data)
-    show_cols = [c for c in ["symbol", "trend", "action", "confidence", "price", "sl", "tp1", "tp2"] if c in df_radar.columns]
-    st.dataframe(df_radar[show_cols], use_container_width=True)
+        if results:
+            df_display = pd.DataFrame(results)
+            st.dataframe(
+                df_display[['symbol', 'action', 'price', 'position_size', 'tp1', 'tp2', 'sl', 'confidence']],
+                column_config={
+                    "symbol": "Ticker",
+                    "action": "Action Signal",
+                    "price": "Current Price (₹)",
+                    "position_size": f"Rec. Shares ({risk_percentage}% Risk)",
+                    "tp1": "Target 1 (₹)",
+                    "tp2": "Target 2 (₹)",
+                    "sl": "Stop Loss (₹)",
+                    "confidence": "AI Confidence (%)"
+                },
+                use_container_width=True
+            )
