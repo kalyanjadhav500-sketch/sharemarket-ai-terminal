@@ -6,17 +6,13 @@ from quant_engine import analyze_index
 from broker_engine import broker_stream
 from news_engine import fetch_global_market_sentiment
 
-# Page Configuration
 st.set_page_config(page_title="Quant AI Trading Terminal", layout="wide")
+st.title("⚡ Quant AI Trading Terminal (Institutional Engine)")
 
-st.title("⚡ Quant AI Trading Terminal (0-Lag HFT Engine)")
-
-# 📰 Dynamic News Cache Engine
 @st.cache_data(ttl=180)
 def get_cached_news(symbol_name):
     return fetch_global_market_sentiment(symbol=symbol_name)
 
-# Sidebar Parameters
 st.sidebar.header("⚙️ Trading Parameters & Risk Shield")
 account_capital = st.sidebar.number_input("Account Capital (₹)", value=100000, step=10000)
 risk_per_trade_pct = st.sidebar.slider("Risk Per Trade (%)", 0.5, 3.0, 1.0, 0.1)
@@ -31,14 +27,15 @@ if engine_mode == "Index Derivatives Engine":
     idx_symbol = symbol_map[selected_index]
     active_symbol_for_news = selected_index
 
-    df_1m = yf.download(idx_symbol, period="1d", interval="1m", progress=False)
-    if isinstance(df_1m.columns, pd.MultiIndex):
-        df_1m.columns = df_1m.columns.get_level_values(0)
+    # 🛡️ FIX: Fetching 5-minute Candles instead of 1-minute to eliminate tick noise
+    df_5m = yf.download(idx_symbol, period="5d", interval="5m", progress=False)
+    if isinstance(df_5m.columns, pd.MultiIndex):
+        df_5m.columns = df_5m.columns.get_level_values(0)
 
-    if not df_1m.empty and len(df_1m) > 2:
-        curr_price = df_1m['Close'].iloc[-1]
+    if not df_5m.empty and len(df_5m) > 15:
+        curr_price = df_5m['Close'].iloc[-1]
         tick_data = broker_stream.fetch_live_tick(idx_symbol, current_market_price=curr_price)
-        signal = analyze_index(idx_symbol, df_1m, display_name=selected_index, tick_data=tick_data)
+        signal = analyze_index(idx_symbol, df_5m, display_name=selected_index, tick_data=tick_data)
         
         if signal:
             action = signal["action"]
@@ -62,7 +59,7 @@ if engine_mode == "Index Derivatives Engine":
             with col_left:
                 st.write("**Targets & Stop Loss**")
                 st.json({
-                    "Entry Price": ltp if action != "HOLD / WAIT" else "N/A",
+                    "Entry Price": ltp if "BUY" in action else "N/A",
                     "Target 1": signal["target1"],
                     "Target 2": signal["target2"],
                     "Stop Loss": signal["stop_loss"],
@@ -79,8 +76,7 @@ if engine_mode == "Index Derivatives Engine":
 
 elif engine_mode == "Equity Stock Search Engine":
     st.subheader("🔍 Dynamic Equity Stock Search")
-    
-    user_stock = st.text_input("🔍 Type Any Stock Symbol (e.g. RELIANCE, TATAMOTORS, SBIN, INFY):", value="RELIANCE").upper().strip()
+    user_stock = st.text_input("🔍 Type Stock Symbol (e.g. RELIANCE, TATAMOTORS, SBIN):", value="RELIANCE").upper().strip()
     
     if user_stock:
         stock_ticker = f"{user_stock}.NS" if not user_stock.endswith(".NS") else user_stock
@@ -90,11 +86,12 @@ elif engine_mode == "Equity Stock Search Engine":
         st.markdown(f"### 🎯 Real-Time Quant Analysis for **{clean_name}**")
         
         try:
-            df_eq = yf.download(stock_ticker, period="1d", interval="1m", progress=False)
+            # 🛡️ FIX: 5-minute Candles for Equity to stabilize signals
+            df_eq = yf.download(stock_ticker, period="5d", interval="5m", progress=False)
             if isinstance(df_eq.columns, pd.MultiIndex):
                 df_eq.columns = df_eq.columns.get_level_values(0)
                 
-            if not df_eq.empty and len(df_eq) > 2:
+            if not df_eq.empty and len(df_eq) > 15:
                 eq_price = df_eq['Close'].iloc[-1]
                 tick_data = broker_stream.fetch_live_tick(stock_ticker, current_market_price=eq_price)
                 signal = analyze_index(stock_ticker, df_eq, display_name=clean_name, tick_data=tick_data)
@@ -106,9 +103,7 @@ elif engine_mode == "Equity Stock Search Engine":
 
                     risk_amount = (account_capital * risk_per_trade_pct) / 100
                     sl_val = signal["stop_loss"]
-                    
-                    # Robust SL Distance Calculation (Prevents exploding share count)
-                    sl_dist = abs(ltp - sl_val) if isinstance(sl_val, (int, float)) and sl_val != 0 else (ltp * 0.005)
+                    sl_dist = abs(ltp - sl_val) if isinstance(sl_val, (int, float)) and sl_val != 0 else (ltp * 0.008)
                     rec_shares = max(1, int(risk_amount / sl_dist))
 
                     col1, col2, col3, col4 = st.columns(4)
@@ -124,7 +119,7 @@ elif engine_mode == "Equity Stock Search Engine":
                     with col_left:
                         st.write("**Targets & Stop Loss**")
                         st.json({
-                            "Entry Price": ltp if action != "HOLD / WAIT" else "N/A",
+                            "Entry Price": ltp if "BUY" in action else "N/A",
                             "Target 1": signal["target1"],
                             "Target 2": signal["target2"],
                             "Stop Loss": signal["stop_loss"],
@@ -139,11 +134,10 @@ elif engine_mode == "Equity Stock Search Engine":
                     for reason in signal["reasons"]:
                         st.write(f"• {reason}")
             else:
-                st.error(f"⚠️ '{clean_name}' साठी डेटा सापडला नाही. कृपया अचूक NSE सिम्बॉल टाका (उदा. TATAMOTORS, SBIN).")
+                st.error(f"⚠️ '{clean_name}' साठी पुरेसा डेटा उपलब्ध नाही.")
         except Exception as e:
             st.error(f"⚠️ डेटा फेच करताना एरर आला: {e}")
 
-# 📰 DYNAMIC LIVE MARKET NEWS SECTION (Selected Stock News)
 st.markdown("---")
 st.subheader(f"📰 Live News & Sentiment for {active_symbol_for_news}")
 
@@ -160,9 +154,6 @@ with col_n2:
     if headlines:
         for h in headlines:
             st.write(f"• {h}")
-    else:
-        st.write("• Monitoring active news feeds...")
 
-# Continuous Live Refresh Loop
-time.sleep(2)
+time.sleep(3)
 st.rerun()
