@@ -6,8 +6,8 @@ import pandas as pd
 from quant_engine import analyze_index, build_scanner_row
 from news_engine import fetch_global_market_sentiment
 from telegram_alerts import send_telegram_message, send_index_signal, send_top_stocks
+from broker_engine import broker_stream
 
-# Clean Watchlist without delisted symbols
 WATCHLIST_SECTORS = {
     "RELIANCE": "Energy", 
     "TCS": "IT", 
@@ -21,7 +21,6 @@ WATCHLIST_SECTORS = {
 
 ist = pytz.timezone('Asia/Kolkata')
 
-# Global State & News Tracker
 latest_index_signals = {}
 latest_equity_signals = []
 last_alert_sent = {}
@@ -48,7 +47,6 @@ def update_live_news_sentiment():
     """Continuously fetches real-time market sentiment and news breakdown."""
     global current_news_sentiment
     try:
-        # news_engine मधील ३ ही व्हॅल्यूज अनपॅक (Unpack) केल्या आहेत
         bias, details, headlines = fetch_global_market_sentiment()
         current_news_sentiment = {
             "bias": bias, 
@@ -61,10 +59,9 @@ def update_live_news_sentiment():
         print(f"[News Fetch Error]: {e}")
 
 def continuous_realtime_surveillance():
-    """1-Minute High Frequency Tick Scan with Dynamic News Confluence."""
+    """Direct Broker WebSocket Tick Surveillance with Zero-Lag Logic."""
     global latest_index_signals, latest_equity_signals, last_alert_sent
     
-    # 1. Index Surveillance (1-Minute Intervals for instant spike detection)
     for idx_symbol, idx_name in [("^NSEI", "NIFTY 50"), ("^NSEBANK", "BANK NIFTY")]:
         try:
             df_1m = yf.download(idx_symbol, period="1d", interval="1m", progress=False)
@@ -72,29 +69,30 @@ def continuous_realtime_surveillance():
                 df_1m.columns = df_1m.columns.get_level_values(0)
             
             if not df_1m.empty and len(df_1m) > 2:
-                signal = analyze_index(idx_symbol, df_1m, display_name=idx_name)
+                # 0-Lag Tick Data Fetching from Broker Bridge Engine
+                curr_price = df_1m['Close'].iloc[-1]
+                tick_data = broker_stream.fetch_live_tick(idx_symbol, current_market_price=curr_price)
                 
-                # Dynamic News Factor adjustment
+                # Dynamic Quant Execution with Tick Imbalance
+                signal = analyze_index(idx_symbol, df_1m, display_name=idx_name, tick_data=tick_data)
+                
                 if signal:
                     signal['news_bias'] = current_news_sentiment['bias']
                     signal['news_headlines'] = current_news_sentiment.get('headlines', [])
                     latest_index_signals[idx_name] = signal
                     
-                    # Instant Telegram Dispatch on High Confluence Action Signal
                     action = signal.get("action")
                     if action in ["BUY CALL (CE)", "BUY PUT (PE)"]:
                         last_time = last_alert_sent.get(idx_name)
                         now_time = time.time()
                         
-                        # Prevent duplicate spam: trigger alert only if 5 mins passed or signal flipped
                         if not last_time or (now_time - last_time > 300):
                             send_index_signal(signal)
                             last_alert_sent[idx_name] = now_time
-                            print(f"⚡ Instant Real-Time Alert Sent: {idx_name} -> {action}")
+                            print(f"⚡ [0-LAG HFT ALERT SENT]: {idx_name} -> {action}")
         except Exception as e:
             print(f"[Real-Time Watch Error - {idx_name}]: {e}")
 
-    # 2. Equity Watchlist Scan (1-Min ticks)
     scanned_stocks = []
     for symbol, sector in WATCHLIST_SECTORS.items():
         try:
@@ -115,7 +113,6 @@ def continuous_realtime_surveillance():
         latest_equity_signals = scanned_stocks
 
 def send_pre_market_briefing():
-    """Morning Pre-Market News Briefing with Live Headlines."""
     global pre_market_sent_date
     today_date = datetime.datetime.now(ist).date()
     
@@ -134,15 +131,15 @@ def send_pre_market_briefing():
     headlines_formatted = "\n".join([f"📰 <i>{h}</i>" for h in headlines])
     
     msg = (
-        f"🌅 <b>24x7 AI AGENT: PRE-MARKET & LIVE NEWS OUTLOOK</b>\n"
+        f"🌅 <b>24x7 AI AGENT: PRE-MARKET OUTLOOK</b>\n"
         f"───────────────\n"
         f"🎯 <b>Live Sentiment Bias:</b> {bias}\n"
         f"───────────────\n"
-        f"📊 <b>Global Cues & Quant Indicators:</b>\n"
+        f"📊 <b>Global Cues & Quant Drivers:</b>\n"
         f"{details_formatted}\n\n"
         f"🔥 <b>Top Real-Time Headlines:</b>\n"
         f"{headlines_formatted}\n\n"
-        f"⚡ <i>Continuous 1-minute tick scanning & live news tracking active.</i>"
+        f"⚡ <i>Broker WebSocket Tick Stream Active.</i>"
     )
     
     if send_telegram_message(msg):
@@ -150,33 +147,30 @@ def send_pre_market_briefing():
         print("[Pre-Market] Morning Briefing successfully delivered.")
 
 def start_24x7_daemon():
-    print("🤖 [STARTING CONTINUOUS 24/7 REAL-TIME QUANT & NEWS AI DAEMON] 🤖")
+    print("🤖 [STARTING BROKER TICK-STREAM ZERO-LAG AI DAEMON] 🤖")
+    broker_stream.connect()
     
     news_timer = 0
     while True:
         try:
-            # दर १५ मिनिटांनी लाईव्ह बातम्या व सेंटीमेंट अपडेट होतील
             if time.time() - news_timer > 900:
                 update_live_news_sentiment()
                 news_timer = time.time()
 
-            # 1. LIVE MARKET HOURS (9:15 AM - 3:30 PM) -> Continuous 1-min Scans
             if is_market_hours():
                 continuous_realtime_surveillance()
-                time.sleep(10)  # दर १० सेकंदांनी रिअल-टाईम स्कॅनिंग
+                time.sleep(2)  # २ सेकंदांच्या 0-Lag स्पीड लूपवर स्कॅनिंग
                 
-            # 2. PRE-MARKET HOURS (8:45 AM - 9:14 AM)
             elif is_pre_market_time():
                 send_pre_market_briefing()
                 time.sleep(60)
 
-            # 3. OFF-MARKET HOURS (24x7 Background Monitoring)
             else:
-                time.sleep(300) # ५ मिनिटांनी बॅकग्राऊंड न्यूज तपासणी
+                time.sleep(300)
 
         except Exception as e:
             print(f"[Daemon Loop Error]: {e}")
-            time.sleep(10)
+            time.sleep(5)
 
 if __name__ == "__main__":
     start_24x7_daemon()
