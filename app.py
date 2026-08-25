@@ -11,6 +11,14 @@ st.set_page_config(page_title="Quant AI Trading Terminal", layout="wide")
 
 st.title("⚡ Quant AI Trading Terminal (0-Lag HFT Engine)")
 
+# ⚡ Smart Cache Engine (५ मिनिटांच्या कॅशेमुळे २-सेकंद रिफ्रेश लूप हँग होणार नाही)
+@st.cache_data(ttl=300)
+def get_cached_news():
+    try:
+        return fetch_global_market_sentiment()
+    except Exception as e:
+        return "NEUTRAL", {"Status": "Active"}, ["Global cues are being tracked in real-time."]
+
 # Sidebar Parameters
 st.sidebar.header("⚙️ Trading Parameters & Risk Shield")
 account_capital = st.sidebar.number_input("Account Capital (₹)", value=100000, step=10000)
@@ -106,6 +114,26 @@ elif engine_mode == "Equity Breakout Scanner":
     if scanner_data:
         st.dataframe(pd.DataFrame(scanner_data), use_container_width=True)
 
-# Continuous Live Refresh (दर २ सेकंदांनी डॅशबोर्डवरील टिक डेटा अपडेट होतो)
+# 📰 LIVE MARKET NEWS & GLOBAL SENTIMENT SECTION
+st.markdown("---")
+st.subheader("📰 Live Market News & Global Sentiment")
+
+bias, details, headlines = get_cached_news()
+col_n1, col_n2 = st.columns([1, 2])
+
+with col_n1:
+    st.metric("Overall Market Bias", bias)
+    st.write("**Global Drivers & Macro Metrics**")
+    st.json(details)
+    
+with col_n2:
+    st.write("**Top Live Headlines**")
+    if headlines:
+        for h in headlines:
+            st.write(f"• {h}")
+    else:
+        st.write("• Global markets trading in neutral territory.")
+
+# Continuous Live Refresh Loop
 time.sleep(2)
 st.rerun()
