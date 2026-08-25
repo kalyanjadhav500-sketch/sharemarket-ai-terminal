@@ -11,18 +11,10 @@ st.set_page_config(page_title="Quant AI Trading Terminal", layout="wide")
 
 st.title("⚡ Quant AI Trading Terminal (0-Lag HFT Engine)")
 
-# 📰 Smart Cache News Engine (५ मिनिटांचा स्मार्ट कॅशे)
-@st.cache_data(ttl=300)
-def get_cached_news():
-    try:
-        bias, details, headlines = fetch_global_market_sentiment()
-        return bias, details, headlines
-    except Exception:
-        return "NEUTRAL", {"Global Bias": "Neutral / Tracking"}, [
-            "RBI & Fed Monetary Policy Updates Monitored.",
-            "Global Cues trading with neutral bias.",
-            "Institutional Volume Stream Active."
-        ]
+# 📰 Dynamic News Cache Engine
+@st.cache_data(ttl=180)
+def get_cached_news(symbol_name):
+    return fetch_global_market_sentiment(symbol=symbol_name)
 
 # Sidebar Parameters
 st.sidebar.header("⚙️ Trading Parameters & Risk Shield")
@@ -31,10 +23,13 @@ risk_per_trade_pct = st.sidebar.slider("Risk Per Trade (%)", 0.5, 3.0, 1.0, 0.1)
 
 engine_mode = st.sidebar.radio("Select Engine Mode", ["Index Derivatives Engine", "Equity Stock Search Engine"])
 
+active_symbol_for_news = "BANK NIFTY"
+
 if engine_mode == "Index Derivatives Engine":
     selected_index = st.selectbox("Select Benchmark Index", ["BANK NIFTY", "NIFTY 50"])
     symbol_map = {"BANK NIFTY": "^NSEBANK", "NIFTY 50": "^NSEI"}
     idx_symbol = symbol_map[selected_index]
+    active_symbol_for_news = selected_index
 
     df_1m = yf.download(idx_symbol, period="1d", interval="1m", progress=False)
     if isinstance(df_1m.columns, pd.MultiIndex):
@@ -85,12 +80,12 @@ if engine_mode == "Index Derivatives Engine":
 elif engine_mode == "Equity Stock Search Engine":
     st.subheader("🔍 Dynamic Equity Stock Search")
     
-    # 🔍 DYNAMIC SEARCH BAR FOR ANY NSE STOCK
-    user_stock = st.text_input("🔍 Type Any Stock Symbol (e.g. RELIANCE, TATAMOTORS, SBIN, INFY, ZOMATO):", value="RELIANCE").upper().strip()
+    user_stock = st.text_input("🔍 Type Any Stock Symbol (e.g. RELIANCE, TATAMOTORS, SBIN, INFY):", value="RELIANCE").upper().strip()
     
     if user_stock:
         stock_ticker = f"{user_stock}.NS" if not user_stock.endswith(".NS") else user_stock
         clean_name = user_stock.replace(".NS", "")
+        active_symbol_for_news = clean_name
         
         st.markdown(f"### 🎯 Real-Time Quant Analysis for **{clean_name}**")
         
@@ -111,8 +106,10 @@ elif engine_mode == "Equity Stock Search Engine":
 
                     risk_amount = (account_capital * risk_per_trade_pct) / 100
                     sl_val = signal["stop_loss"]
-                    sl_dist = abs(ltp - sl_val) if isinstance(sl_val, (int, float)) else ltp * 0.01
-                    rec_shares = max(1, int(risk_amount / (sl_dist if sl_dist > 0 else 1)))
+                    
+                    # Robust SL Distance Calculation (Prevents exploding share count)
+                    sl_dist = abs(ltp - sl_val) if isinstance(sl_val, (int, float)) and sl_val != 0 else (ltp * 0.005)
+                    rec_shares = max(1, int(risk_amount / sl_dist))
 
                     col1, col2, col3, col4 = st.columns(4)
                     col1.metric("Current Price", f"₹{ltp}")
@@ -146,25 +143,25 @@ elif engine_mode == "Equity Stock Search Engine":
         except Exception as e:
             st.error(f"⚠️ डेटा फेच करताना एरर आला: {e}")
 
-# 📰 LIVE MARKET NEWS & GLOBAL SENTIMENT SECTION
+# 📰 DYNAMIC LIVE MARKET NEWS SECTION (Selected Stock News)
 st.markdown("---")
-st.subheader("📰 Live Market News & Global Sentiment")
+st.subheader(f"📰 Live News & Sentiment for {active_symbol_for_news}")
 
-bias, details, headlines = get_cached_news()
+bias, details, headlines = get_cached_news(active_symbol_for_news)
 col_n1, col_n2 = st.columns([1, 2])
 
 with col_n1:
-    st.metric("Overall Market Bias", bias)
-    st.write("**Global Drivers & Macro Metrics**")
+    st.metric("Stream Status", bias)
+    st.write("**Asset Feed Details**")
     st.json(details)
     
 with col_n2:
-    st.write("**Top Live Headlines**")
+    st.write(f"**Top Live Headlines for {active_symbol_for_news}**")
     if headlines:
         for h in headlines:
             st.write(f"• {h}")
     else:
-        st.write("• Global markets trading in neutral territory.")
+        st.write("• Monitoring active news feeds...")
 
 # Continuous Live Refresh Loop
 time.sleep(2)
