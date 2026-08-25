@@ -7,7 +7,7 @@ from quant_engine import analyze_index, build_scanner_row
 from news_engine import fetch_global_market_sentiment
 from telegram_alerts import send_telegram_message, send_index_signal, send_top_stocks
 
-# Clean Watchlist without invalid or delisted symbols (TATAMOTORS and LTIM removed)
+# Clean Watchlist without delisted symbols
 WATCHLIST_SECTORS = {
     "RELIANCE": "Energy", 
     "TCS": "IT", 
@@ -21,11 +21,12 @@ WATCHLIST_SECTORS = {
 
 ist = pytz.timezone('Asia/Kolkata')
 
-# State Tracker
+# Global State & News Tracker
 latest_index_signals = {}
 latest_equity_signals = []
-last_telegram_dispatch = None
+last_alert_sent = {}
 pre_market_sent_date = None
+current_news_sentiment = {"bias": "NEUTRAL", "details": {}}
 
 def is_market_hours():
     now = datetime.datetime.now(ist)
@@ -43,60 +44,72 @@ def is_pre_market_time():
     pre_end = now.replace(hour=9, minute=14, second=0, microsecond=0)
     return pre_start <= now <= pre_end
 
-def continuous_market_surveillance():
-    """Continuously monitors real-time ticks, price action, and order flow."""
-    global latest_index_signals, latest_equity_signals
+def update_live_news_sentiment():
+    """Continuously fetches real-time market sentiment and news breakdown."""
+    global current_news_sentiment
+    try:
+        bias, details = fetch_global_market_sentiment()
+        current_news_sentiment = {"bias": bias, "details": details}
+        now_str = datetime.datetime.now(ist).strftime('%H:%M:%S')
+        print(f"📰 [{now_str}] News Sentiment Updated: {bias}")
+    except Exception as e:
+        print(f"[News Fetch Error]: {e}")
+
+def continuous_realtime_surveillance():
+    """1-Minute High Frequency Tick Scan with Dynamic News Confluence."""
+    global latest_index_signals, latest_equity_signals, last_alert_sent
     
-    # 1. Index Surveillance
+    # 1. Index Surveillance (1-Minute Intervals for instant spike detection)
     for idx_symbol, idx_name in [("^NSEI", "NIFTY 50"), ("^NSEBANK", "BANK NIFTY")]:
         try:
-            df = yf.download(idx_symbol, period="1d", interval="1m", progress=False)
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
+            df_1m = yf.download(idx_symbol, period="1d", interval="1m", progress=False)
+            if isinstance(df_1m.columns, pd.MultiIndex):
+                df_1m.columns = df_1m.columns.get_level_values(0)
             
-            if not df.empty and len(df) > 2:
-                signal = analyze_index(idx_symbol, df, display_name=idx_name)
+            if not df_1m.empty and len(df_1m) > 2:
+                signal = analyze_index(idx_symbol, df_1m, display_name=idx_name)
+                
+                # Dynamic News Factor adjustment
                 if signal:
+                    signal['news_bias'] = current_news_sentiment['bias']
                     latest_index_signals[idx_name] = signal
+                    
+                    # Instant Telegram Dispatch on High Confluence Action Signal
+                    action = signal.get("action")
+                    if action in ["BUY CALL (CE)", "BUY PUT (PE)"]:
+                        last_time = last_alert_sent.get(idx_name)
+                        now_time = time.time()
+                        
+                        # Prevent duplicate spam: trigger alert only if 5 mins passed or signal flipped
+                        if not last_time or (now_time - last_time > 300):
+                            send_index_signal(signal)
+                            last_alert_sent[idx_name] = now_time
+                            print(f"⚡ Instant Real-Time Alert Sent: {idx_name} -> {action}")
         except Exception as e:
-            print(f"[Live Watch Error - {idx_name}]: {e}")
+            print(f"[Real-Time Watch Error - {idx_name}]: {e}")
 
-    # 2. Equity Watchlist Scan
+    # 2. Equity Watchlist Scan (1-Min ticks)
     scanned_stocks = []
     for symbol, sector in WATCHLIST_SECTORS.items():
         try:
-            df = yf.download(f"{symbol}.NS", period="1d", interval="1m", progress=False)
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
+            df_1m = yf.download(f"{symbol}.NS", period="1d", interval="1m", progress=False)
+            if isinstance(df_1m.columns, pd.MultiIndex):
+                df_1m.columns = df_1m.columns.get_level_values(0)
             
-            if not df.empty and len(df) > 2:
-                row = build_scanner_row(symbol, df, sector=sector)
+            if not df_1m.empty and len(df_1m) > 2:
+                row = build_scanner_row(symbol, df_1m, sector=sector)
                 if row and row.get("action") in ["BUY / LONG", "SELL / SHORT"]:
+                    row['news_bias'] = current_news_sentiment['bias']
                     scanned_stocks.append(row)
         except Exception as e:
-            print(f"[Live Watch Error - {symbol}]: {e}")
+            print(f"[Real-Time Watch Error - {symbol}]: {e}")
 
     if scanned_stocks:
         scanned_stocks.sort(key=lambda x: x.get("confidence", 0), reverse=True)
         latest_equity_signals = scanned_stocks
 
-def dispatch_15min_telegram_alerts():
-    """Sends high-confluence alerts every 15 minutes during live market hours."""
-    global latest_index_signals, latest_equity_signals
-    
-    now_str = datetime.datetime.now(ist).strftime('%H:%M:%S')
-    print(f"📢 [{now_str}] Executing 15-Minute Telegram Call Dispatch...")
-
-    for idx_name, signal in latest_index_signals.items():
-        if signal and signal.get("action") in ["BUY CALL (CE)", "BUY PUT (PE)"]:
-            send_index_signal(signal)
-
-    if latest_equity_signals:
-        top_pick = latest_equity_signals[0]
-        send_top_stocks([top_pick])
-
 def send_pre_market_briefing():
-    """Sends ONLY ONE Pre-Market Briefing report before market opens (8:45 AM - 9:14 AM)."""
+    """Morning Pre-Market News Briefing."""
     global pre_market_sent_date
     today_date = datetime.datetime.now(ist).date()
     
@@ -106,57 +119,49 @@ def send_pre_market_briefing():
     now_str = datetime.datetime.now(ist).strftime('%H:%M:%S')
     print(f"🌅 [{now_str}] Preparing Morning Pre-Market Briefing...")
     
-    try:
-        bias, details = fetch_global_market_sentiment()
-        details_formatted = "\n".join([f"• <b>{k}:</b> {v}%" for k, v in details.items()])
-        
-        msg = (
-            f"🌅 <b>PRE-MARKET AI BRIEFING & TODAY'S OUTLOOK</b>\n"
-            f"───────────────\n"
-            f"🎯 <b>Expected Market Bias Today:</b> {bias}\n"
-            f"───────────────\n"
-            f"📊 <b>Overnight Global Cues & Forex Study:</b>\n"
-            f"{details_formatted}\n\n"
-            f"⚡ <i>AI Agent is active. 15-min live trade signals will be dispatched during market hours.</i>"
-        )
-        
-        if send_telegram_message(msg):
-            pre_market_sent_date = today_date
-            print("[Pre-Market] Morning Briefing successfully delivered.")
-    except Exception as e:
-        print(f"[Pre-Market Error]: {e}")
+    update_live_news_sentiment()
+    bias = current_news_sentiment.get("bias", "NEUTRAL")
+    details = current_news_sentiment.get("details", {})
+    details_formatted = "\n".join([f"• <b>{k}:</b> {v}%" for k, v in details.items()])
+    
+    msg = (
+        f"🌅 <b>24x7 AI AGENT: PRE-MARKET & LIVE NEWS OUTLOOK</b>\n"
+        f"───────────────\n"
+        f"🎯 <b>Live Sentiment Bias:</b> {bias}\n"
+        f"───────────────\n"
+        f"📊 <b>Global Cues & Market Drivers:</b>\n"
+        f"{details_formatted}\n\n"
+        f"⚡ <i>Continuous 1-minute tick scanning & live news tracking active.</i>"
+    )
+    
+    if send_telegram_message(msg):
+        pre_market_sent_date = today_date
+        print("[Pre-Market] Morning Briefing successfully delivered.")
 
 def start_24x7_daemon():
-    global last_telegram_dispatch
-    print("🤖 [STARTING CONTINUOUS 24/7 QUANT AI DAEMON] 🤖")
-
+    print("🤖 [STARTING CONTINUOUS 24/7 REAL-TIME QUANT & NEWS AI DAEMON] 🤖")
+    
+    news_timer = 0
     while True:
         try:
-            now = datetime.datetime.now(ist)
-            
-            # 1. LIVE MARKET HOURS (9:15 AM - 3:30 PM)
+            # हर १५ मिनिटांनी लाईव्ह बातम्या अपडेट होतील
+            if time.time() - news_timer > 900:
+                update_live_news_sentiment()
+                news_timer = time.time()
+
+            # 1. LIVE MARKET HOURS (9:15 AM - 3:30 PM) -> Continuous 1-min Scans
             if is_market_hours():
-                continuous_market_surveillance()
-                
-                # Dispatch Telegram Alert on 15-Minute Cycles (:00, :15, :30, :45)
-                if last_telegram_dispatch != now.minute and now.minute % 15 == 0:
-                    dispatch_15min_telegram_alerts()
-                    last_telegram_dispatch = now.minute
-                
-                time.sleep(10)
+                continuous_realtime_surveillance()
+                time.sleep(10)  # दर १० सेकंदांनी रिअल-टाईम स्कॅनिंग
                 
             # 2. PRE-MARKET HOURS (8:45 AM - 9:14 AM)
             elif is_pre_market_time():
                 send_pre_market_briefing()
                 time.sleep(60)
 
-            # 3. OFF-MARKET HOURS
+            # 3. OFF-MARKET HOURS (24x7 Background Monitoring)
             else:
-                try:
-                    _ = fetch_global_market_sentiment()
-                except Exception:
-                    pass
-                time.sleep(600)
+                time.sleep(300) # ५ मिनिटांनी बॅकग्राऊंड न्यूज तपासणी
 
         except Exception as e:
             print(f"[Daemon Loop Error]: {e}")
