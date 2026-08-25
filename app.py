@@ -7,12 +7,17 @@ from broker_engine import broker_stream
 from news_engine import fetch_global_market_sentiment
 
 st.set_page_config(page_title="Quant AI Trading Terminal", layout="wide")
-st.title("⚡ Quant AI Trading Terminal (Institutional Engine)")
+st.title("⚡ Quant AI Trading Terminal (Institutional Signal Lock Engine)")
+
+# Initialize Active Trade Lock Session State
+if "active_trade" not in st.session_state:
+    st.session_state["active_trade"] = None
 
 @st.cache_data(ttl=180)
 def get_cached_news(symbol_name):
     return fetch_global_market_sentiment(symbol=symbol_name)
 
+# Sidebar Parameters
 st.sidebar.header("⚙️ Trading Parameters & Risk Shield")
 account_capital = st.sidebar.number_input("Account Capital (₹)", value=100000, step=10000)
 risk_per_trade_pct = st.sidebar.slider("Risk Per Trade (%)", 0.5, 3.0, 1.0, 0.1)
@@ -27,50 +32,69 @@ if engine_mode == "Index Derivatives Engine":
     idx_symbol = symbol_map[selected_index]
     active_symbol_for_news = selected_index
 
-    # 🛡️ FIX: Fetching 5-minute Candles instead of 1-minute to eliminate tick noise
-    df_5m = yf.download(idx_symbol, period="5d", interval="5m", progress=False)
-    if isinstance(df_5m.columns, pd.MultiIndex):
-        df_5m.columns = df_5m.columns.get_level_values(0)
+    # Fetch 5m candles for deep analysis
+    df_data = yf.download(idx_symbol, period="5d", interval="5m", progress=False)
+    if isinstance(df_data.columns, pd.MultiIndex):
+        df_data.columns = df_data.columns.get_level_values(0)
 
-    if not df_5m.empty and len(df_5m) > 15:
-        curr_price = df_5m['Close'].iloc[-1]
+    if not df_data.empty and len(df_data) > 15:
+        curr_price = df_data['Close'].iloc[-1]
         tick_data = broker_stream.fetch_live_tick(idx_symbol, current_market_price=curr_price)
-        signal = analyze_index(idx_symbol, df_5m, display_name=selected_index, tick_data=tick_data)
+        bias, details, headlines = get_cached_news(selected_index)
         
-        if signal:
-            action = signal["action"]
-            confidence = signal["confidence"]
-            ltp = signal["entry_price"]
+        # Check active locked trade or evaluate new setup
+        current_trade = st.session_state["active_trade"]
+        
+        if current_trade is None or current_trade["symbol"] != selected_index:
+            signal = analyze_index(idx_symbol, df_data, display_name=selected_index, tick_data=tick_data, news_headlines=headlines)
+            if signal and "BUY" in signal["action"]:
+                st.session_state["active_trade"] = signal
+                current_trade = signal
+        else:
+            signal = current_trade  # Maintain Locked Trade Call
 
-            lot_size_map = {"BANK NIFTY": 15, "NIFTY 50": 25}
-            risk_amount = (account_capital * risk_per_trade_pct) / 100
-            recommended_lots = max(1, int(risk_amount / (lot_size_map[selected_index] * 50)))
+        # Evaluate Live Status against Locked Trade
+        ltp = tick_data.get("ltp", curr_price)
+        action = signal["action"] if signal else "HOLD / WAIT"
+        confidence = signal["confidence"] if signal else 50
 
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Current Price", f"₹{ltp}")
-            col2.metric("Execution Action", action)
-            col3.metric("AI Confidence Score", f"{confidence}%")
-            col4.metric("Recommended Size", f"{recommended_lots} Lot(s)")
+        lot_size_map = {"BANK NIFTY": 15, "NIFTY 50": 25}
+        risk_amount = (account_capital * risk_per_trade_pct) / 100
+        recommended_lots = max(1, int(risk_amount / (lot_size_map[selected_index] * 50)))
 
-            st.markdown("---")
-            st.subheader("🎯 Institutional Trade Levels & Risk Parameters")
+        # Display Top Bar Metrics
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Live Market Price", f"₹{round(ltp, 2)}")
+        col2.metric("Execution Action", action)
+        col3.metric("AI Confluence Score", f"{confidence}%")
+        col4.metric("Recommended Size", f"{recommended_lots} Lot(s)")
 
-            col_left, col_right = st.columns(2)
-            with col_left:
-                st.write("**Targets & Stop Loss**")
-                st.json({
-                    "Entry Price": ltp if "BUY" in action else "N/A",
-                    "Target 1": signal["target1"],
-                    "Target 2": signal["target2"],
-                    "Stop Loss": signal["stop_loss"],
-                    "Risk / Reward Ratio": signal["rr_ratio"]
-                })
-            with col_right:
-                st.write("**Daily Pivot Levels**")
+        st.markdown("---")
+        st.subheader("🎯 Locked Trade Levels & Risk Parameters")
+
+        col_left, col_right = st.columns(2)
+        with col_left:
+            st.write("**Targets & Stop Loss**")
+            st.json({
+                "Entry Price": signal["entry_price"] if signal and "BUY" in action else "N/A",
+                "Target 1": signal["target1"] if signal else "N/A",
+                "Target 2": signal["target2"] if signal else "N/A",
+                "Stop Loss": signal["stop_loss"] if signal else "N/A",
+                "Risk / Reward Ratio": signal["rr_ratio"] if signal else "N/A"
+            })
+        with col_right:
+            if signal:
+                st.write("**Daily Pivot & VWAP Levels**")
                 st.json(signal["pivots"])
+            
+            if st.session_state["active_trade"] is not None:
+                if st.button("🔄 Reset / Exit Active Signal Lock"):
+                    st.session_state["active_trade"] = None
+                    st.rerun()
 
-            st.markdown("---")
-            st.subheader("💡 Quant Logic & Confluence Factors")
+        st.markdown("---")
+        st.subheader("💡 Quant Logic & Deep Study Confluence Factors")
+        if signal:
             for reason in signal["reasons"]:
                 st.write(f"• {reason}")
 
@@ -86,51 +110,66 @@ elif engine_mode == "Equity Stock Search Engine":
         st.markdown(f"### 🎯 Real-Time Quant Analysis for **{clean_name}**")
         
         try:
-            # 🛡️ FIX: 5-minute Candles for Equity to stabilize signals
-            df_eq = yf.download(stock_ticker, period="5d", interval="5m", progress=False)
-            if isinstance(df_eq.columns, pd.MultiIndex):
-                df_eq.columns = df_eq.columns.get_level_values(0)
+            df_data = yf.download(stock_ticker, period="5d", interval="5m", progress=False)
+            if isinstance(df_data.columns, pd.MultiIndex):
+                df_data.columns = df_data.columns.get_level_values(0)
                 
-            if not df_eq.empty and len(df_eq) > 15:
-                eq_price = df_eq['Close'].iloc[-1]
+            if not df_data.empty and len(df_data) > 15:
+                eq_price = df_data['Close'].iloc[-1]
                 tick_data = broker_stream.fetch_live_tick(stock_ticker, current_market_price=eq_price)
-                signal = analyze_index(stock_ticker, df_eq, display_name=clean_name, tick_data=tick_data)
+                bias, details, headlines = get_cached_news(clean_name)
+
+                current_trade = st.session_state["active_trade"]
                 
-                if signal:
-                    action = signal["action"]
-                    confidence = signal["confidence"]
-                    ltp = signal["entry_price"]
+                if current_trade is None or current_trade["symbol"] != clean_name:
+                    signal = analyze_index(stock_ticker, df_data, display_name=clean_name, tick_data=tick_data, news_headlines=headlines)
+                    if signal and "BUY" in signal["action"]:
+                        st.session_state["active_trade"] = signal
+                        current_trade = signal
+                else:
+                    signal = current_trade
 
-                    risk_amount = (account_capital * risk_per_trade_pct) / 100
-                    sl_val = signal["stop_loss"]
-                    sl_dist = abs(ltp - sl_val) if isinstance(sl_val, (int, float)) and sl_val != 0 else (ltp * 0.008)
-                    rec_shares = max(1, int(risk_amount / sl_dist))
+                ltp = tick_data.get("ltp", eq_price)
+                action = signal["action"] if signal else "HOLD / WAIT"
+                confidence = signal["confidence"] if signal else 50
 
-                    col1, col2, col3, col4 = st.columns(4)
-                    col1.metric("Current Price", f"₹{ltp}")
-                    col2.metric("Execution Action", action)
-                    col3.metric("AI Confidence Score", f"{confidence}%")
-                    col4.metric("Recommended Size", f"{rec_shares} Share(s)")
+                risk_amount = (account_capital * risk_per_trade_pct) / 100
+                sl_val = signal["stop_loss"] if signal else ltp * 0.99
+                sl_dist = abs(ltp - sl_val) if isinstance(sl_val, (int, float)) and sl_val != 0 else (ltp * 0.0075)
+                rec_shares = max(1, int(risk_amount / sl_dist))
 
-                    st.markdown("---")
-                    st.subheader("🎯 Institutional Trade Levels & Risk Parameters")
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Live Market Price", f"₹{round(ltp, 2)}")
+                col2.metric("Execution Action", action)
+                col3.metric("AI Confluence Score", f"{confidence}%")
+                col4.metric("Recommended Size", f"{rec_shares} Share(s)")
 
-                    col_left, col_right = st.columns(2)
-                    with col_left:
-                        st.write("**Targets & Stop Loss**")
-                        st.json({
-                            "Entry Price": ltp if "BUY" in action else "N/A",
-                            "Target 1": signal["target1"],
-                            "Target 2": signal["target2"],
-                            "Stop Loss": signal["stop_loss"],
-                            "Risk / Reward Ratio": signal["rr_ratio"]
-                        })
-                    with col_right:
-                        st.write("**Daily Pivot Levels**")
+                st.markdown("---")
+                st.subheader("🎯 Locked Trade Levels & Risk Parameters")
+
+                col_left, col_right = st.columns(2)
+                with col_left:
+                    st.write("**Targets & Stop Loss**")
+                    st.json({
+                        "Entry Price": signal["entry_price"] if signal and "BUY" in action else "N/A",
+                        "Target 1": signal["target1"] if signal else "N/A",
+                        "Target 2": signal["target2"] if signal else "N/A",
+                        "Stop Loss": signal["stop_loss"] if signal else "N/A",
+                        "Risk / Reward Ratio": signal["rr_ratio"] if signal else "N/A"
+                    })
+                with col_right:
+                    if signal:
+                        st.write("**Daily Pivot & VWAP Levels**")
                         st.json(signal["pivots"])
+                    
+                    if st.session_state["active_trade"] is not None:
+                        if st.button("🔄 Reset / Exit Active Signal Lock"):
+                            st.session_state["active_trade"] = None
+                            st.rerun()
 
-                    st.markdown("---")
-                    st.subheader("💡 Quant Logic & Confluence Factors")
+                st.markdown("---")
+                st.subheader("💡 Quant Logic & Deep Study Confluence Factors")
+                if signal:
                     for reason in signal["reasons"]:
                         st.write(f"• {reason}")
             else:
@@ -138,6 +177,7 @@ elif engine_mode == "Equity Stock Search Engine":
         except Exception as e:
             st.error(f"⚠️ डेटा फेच करताना एरर आला: {e}")
 
+# Live Dynamic News Stream below
 st.markdown("---")
 st.subheader(f"📰 Live News & Sentiment for {active_symbol_for_news}")
 
@@ -155,5 +195,6 @@ with col_n2:
         for h in headlines:
             st.write(f"• {h}")
 
-time.sleep(3)
+# Smooth Live Price Refresh Loop (2 Seconds)
+time.sleep(2)
 st.rerun()
