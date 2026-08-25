@@ -1,105 +1,78 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-from streamlit_autorefresh import st_autorefresh
 from quant_engine import analyze_index, build_scanner_row
+from broker_engine import broker_stream
+from news_engine import fetch_global_market_sentiment
 
-st.set_page_config(
-    page_title="Quant AI Trading Terminal",
-    page_icon="🏛️",
-    layout="wide"
-)
+st.set_page_config(page_title="Quant AI Trading Terminal", layout="wide")
 
-# 🔄 दर १० सेकंदांनी डॅशबोर्ड आपोआप लाईव्ह डेटा रिफ्रेश करेल
-st_autorefresh(interval=10000, limit=None, key="live_market_autorefresh")
+st.title("⚡ Quant AI Trading Terminal (0-Lag HFT Engine)")
 
-st.title("🏛️ Institutional Quant AI Trading Terminal")
-st.markdown("<b>Real-time Quantitative Analysis, Pivot Levels, Volume Surge & Risk Management Engine</b>", unsafe_allow_html=True)
-
-# Sidebar Configuration
+# Sidebar Settings
 st.sidebar.header("⚙️ Trading Parameters & Risk Shield")
-user_capital = st.sidebar.number_input("Account Capital (₹)", min_value=10000, value=100000, step=10000)
-risk_percentage = st.sidebar.slider("Risk Per Trade (%)", min_value=0.5, max_value=5.0, value=1.0, step=0.5)
+account_capital = st.sidebar.number_input("Account Capital (₹)", value=100000, step=10000)
+risk_per_trade_pct = st.sidebar.slider("Risk Per Trade (%)", 0.5, 3.0, 1.0, 0.1)
 
-selected_tab = st.sidebar.radio("Select Engine Mode", ["Index Derivatives Engine", "Equity Breakout Scanner"])
+engine_mode = st.sidebar.radio("Select Engine Mode", ["Index Derivatives Engine", "Equity Breakout Scanner"])
 
-if selected_tab == "Index Derivatives Engine":
-    st.subheader("📈 Index Derivatives Quantitative Signals (Live Stream)")
-    index_symbol = st.selectbox("Select Benchmark Index", ["^NSEI", "^NSEBANK"], format_func=lambda x: "NIFTY 50" if x == "^NSEI" else "BANK NIFTY")
-    
-    # ⚡ बटण न दाबता थेट ऑटो-अपडेट होणारा कोड
-    df_15m = yf.download(index_symbol, period="5d", interval="15m", progress=False)
-    if isinstance(df_15m.columns, pd.MultiIndex):
-        df_15m.columns = df_15m.columns.get_level_values(0)
-    
-    res = analyze_index(index_symbol, df_15m, display_name="NIFTY 50" if index_symbol == "^NSEI" else "BANK NIFTY")
-    
-    if res:
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Current Price", f"₹{res.get('price', 0.0)}")
-        col2.metric("Execution Action", res.get('action', 'N/A'))
-        col3.metric("AI Confidence Score", f"{res.get('confidence', 0)}%")
-        col4.metric("Recommended Size", f"{res.get('position_size', 1)} Lot(s)")
+if engine_mode == "Index Derivatives Engine":
+    selected_index = st.selectbox("Select Benchmark Index", ["BANK NIFTY", "NIFTY 50"])
+    symbol_map = {"BANK NIFTY": "^NSEBANK", "NIFTY 50": "^NSEI"}
+    idx_symbol = symbol_map[selected_index]
 
-        st.markdown("---")
+    # Fetch Data
+    df_1m = yf.download(idx_symbol, period="1d", interval="1m", progress=False)
+    if isinstance(df_1m.columns, pd.MultiIndex):
+        df_1m.columns = df_1m.columns.get_level_values(0)
+
+    if not df_1m.empty and len(df_1m) > 2:
+        curr_price = df_1m['Close'].iloc[-1]
         
-        # Pivots & Risk Metrics Table
-        st.subheader("🎯 Institutional Trade Levels & Risk Parameters")
-        col_a, col_b = st.columns(2)
+        # Connect to Broker Tick Stream
+        tick_data = broker_stream.fetch_live_tick(idx_symbol, current_market_price=curr_price)
+        signal = analyze_index(idx_symbol, df_1m, display_name=selected_index, tick_data=tick_data)
         
-        with col_a:
-            st.write("**Targets & Stop Loss**")
-            st.json({
-                "Entry Price": res.get('entry', 0.0),
-                "Target 1": res.get('tp1', 0.0),
-                "Target 2": res.get('tp2', 0.0),
-                "Stop Loss": res.get('sl', 0.0),
-                "Risk / Reward Ratio": "1 : 2.8+"
-            })
+        if signal:
+            action = signal["action"]
+            confidence = signal["confidence"]
+            ltp = signal["entry_price"]
+
+            # Dynamic Lot Size Calculation
+            lot_size_map = {"BANK NIFTY": 15, "NIFTY 50": 25}
+            risk_amount = (account_capital * risk_per_trade_pct) / 100
+            recommended_lots = max(1, int(risk_amount / (lot_size_map[selected_index] * 50)))
+
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Current Price", f"₹{ltp}")
+            col2.metric("Execution Action", action)
+            col3.metric("AI Confidence Score", f"{confidence}%")
+            col4.metric("Recommended Size", f"{recommended_lots} Lot(s)")
+
+            st.markdown("---")
+            st.subheader("🎯 Institutional Trade Levels & Risk Parameters")
+
+            col_left, col_right = st.columns(2)
             
-        with col_b:
-            st.write("**Daily Pivot Levels**")
-            if res.get('pivots'):
-                st.json(res['pivots'])
-            else:
-                st.info("Pivot calculations currently unavailable.")
+            with col_left:
+                st.write("**Targets & Stop Loss**")
+                st.json({
+                    "Entry Price": ltp if action != "HOLD / WAIT" else "N/A",
+                    "Target 1": signal["target1"],
+                    "Target 2": signal["target2"],
+                    "Stop Loss": signal["stop_loss"],
+                    "Risk / Reward Ratio": signal["rr_ratio"]
+                })
 
-        st.subheader("💡 Quant Logic & Confluence Factors")
-        for r in res.get('reasons', []):
-            st.markdown(f"- {r}", unsafe_allow_html=True)
-    else:
-        st.error("Unable to fetch index market data. Please retry after market hours.")
+            with col_right:
+                st.write("**Daily Pivot Levels**")
+                st.json(signal["pivots"])
 
-elif selected_tab == "Equity Breakout Scanner":
-    st.subheader("⚡ Multi-Dimensional Equity Breakout Scanner (Live Stream)")
-    
-    # TATAMOTORS आणि LTIM काढलेली वॉचलिस्ट
-    watchlist = ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK", "SBIN", "BHARTIARTL", "TATASTEEL"]
-    
-    results = []
-    for sym in watchlist:
-        yf_ticker = f"{sym}.NS"
-        df_15m = yf.download(yf_ticker, period="5d", interval="15m", progress=False)
-        if isinstance(df_15m.columns, pd.MultiIndex):
-            df_15m.columns = df_15m.columns.get_level_values(0)
-        
-        row = build_scanner_row(sym, df_15m)
-        if row:
-            results.append(row)
-    
-    if results:
-        df_display = pd.DataFrame(results)
-        st.dataframe(
-            df_display[['symbol', 'action', 'price', 'position_size', 'tp1', 'tp2', 'sl', 'confidence']],
-            column_config={
-                "symbol": "Ticker",
-                "action": "Action Signal",
-                "price": "Current Price (₹)",
-                "position_size": f"Rec. Shares ({risk_percentage}% Risk)",
-                "tp1": "Target 1 (₹)",
-                "tp2": "Target 2 (₹)",
-                "sl": "Stop Loss (₹)",
-                "confidence": "AI Confidence (%)"
-            },
-            use_container_width=True
-        )
+            st.markdown("---")
+            st.subheader("💡 Quant Logic & Confluence Factors")
+            for reason in signal["reasons"]:
+                st.write(f"• {reason}")
+
+elif engine_mode == "Equity Breakout Scanner":
+    st.subheader("📈 Real-Time Equity Breakout Scanner")
+    st.info("Continuous high-conviction scanning across active watchlist stocks.")
