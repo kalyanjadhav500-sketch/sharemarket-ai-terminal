@@ -7,10 +7,16 @@ from quant_engine import analyze_index, build_scanner_row
 from news_engine import fetch_global_market_sentiment
 from telegram_alerts import send_telegram_message, send_index_signal, send_top_stocks
 
+# Clean Watchlist without invalid or delisted symbols (TATAMOTORS and LTIM removed)
 WATCHLIST_SECTORS = {
-    "RELIANCE": "Energy", "TCS": "IT", "INFY": "IT",
-    "HDFCBANK": "Banking", "ICICIBANK": "Banking", "SBIN": "Banking",
-    "BHARTIARTL": "Telecom", "TATASTEEL": "Metals", "TATAMOTORS": "Auto"
+    "RELIANCE": "Energy", 
+    "TCS": "IT", 
+    "INFY": "IT",
+    "HDFCBANK": "Banking", 
+    "ICICIBANK": "Banking", 
+    "SBIN": "Banking",
+    "BHARTIARTL": "Telecom", 
+    "TATASTEEL": "Metals"
 }
 
 ist = pytz.timezone('Asia/Kolkata')
@@ -19,11 +25,11 @@ ist = pytz.timezone('Asia/Kolkata')
 latest_index_signals = {}
 latest_equity_signals = []
 last_telegram_dispatch = None
-pre_market_sent_date = None  # Tracks if morning pre-market briefing was sent
+pre_market_sent_date = None
 
 def is_market_hours():
     now = datetime.datetime.now(ist)
-    if now.weekday() >= 5:  # Weekend Check
+    if now.weekday() >= 5:
         return False
     market_start = now.replace(hour=9, minute=15, second=0, microsecond=0)
     market_end = now.replace(hour=15, minute=30, second=0, microsecond=0)
@@ -50,7 +56,8 @@ def continuous_market_surveillance():
             
             if not df.empty and len(df) > 2:
                 signal = analyze_index(idx_symbol, df, display_name=idx_name)
-                latest_index_signals[idx_name] = signal
+                if signal:
+                    latest_index_signals[idx_name] = signal
         except Exception as e:
             print(f"[Live Watch Error - {idx_name}]: {e}")
 
@@ -81,7 +88,7 @@ def dispatch_15min_telegram_alerts():
     print(f"📢 [{now_str}] Executing 15-Minute Telegram Call Dispatch...")
 
     for idx_name, signal in latest_index_signals.items():
-        if signal.get("action") in ["BUY CALL (CE)", "BUY PUT (PE)"]:
+        if signal and signal.get("action") in ["BUY CALL (CE)", "BUY PUT (PE)"]:
             send_index_signal(signal)
 
     if latest_equity_signals:
@@ -89,32 +96,35 @@ def dispatch_15min_telegram_alerts():
         send_top_stocks([top_pick])
 
 def send_pre_market_briefing():
-    """Sends ONLY ONE Pre-Market Briefing report before market opens (8:45 AM - 9:00 AM)."""
+    """Sends ONLY ONE Pre-Market Briefing report before market opens (8:45 AM - 9:14 AM)."""
     global pre_market_sent_date
     today_date = datetime.datetime.now(ist).date()
     
     if pre_market_sent_date == today_date:
-        return  # Already sent today
+        return
 
     now_str = datetime.datetime.now(ist).strftime('%H:%M:%S')
     print(f"🌅 [{now_str}] Preparing Morning Pre-Market Briefing...")
     
-    bias, details = fetch_global_market_sentiment()
-    details_formatted = "\n".join([f"• <b>{k}:</b> {v}%" for k, v in details.items()])
-    
-    msg = (
-        f"🌅 <b>PRE-MARKET AI BRIEFING & TODAY'S OUTLOOK</b>\n"
-        f"───────────────\n"
-        f"🎯 <b>Expected Market Bias Today:</b> {bias}\n"
-        f"───────────────\n"
-        f"📊 <b>Overnight Global Cues & Forex Study:</b>\n"
-        f"{details_formatted}\n\n"
-        f"⚡ <i>AI Agent is now active for Live Market surveillance. First 15-min call cycle starts at 09:30 AM.</i>"
-    )
-    
-    if send_telegram_message(msg):
-        pre_market_sent_date = today_date
-        print("[Pre-Market] Morning Briefing successfully delivered.")
+    try:
+        bias, details = fetch_global_market_sentiment()
+        details_formatted = "\n".join([f"• <b>{k}:</b> {v}%" for k, v in details.items()])
+        
+        msg = (
+            f"🌅 <b>PRE-MARKET AI BRIEFING & TODAY'S OUTLOOK</b>\n"
+            f"───────────────\n"
+            f"🎯 <b>Expected Market Bias Today:</b> {bias}\n"
+            f"───────────────\n"
+            f"📊 <b>Overnight Global Cues & Forex Study:</b>\n"
+            f"{details_formatted}\n\n"
+            f"⚡ <i>AI Agent is active. 15-min live trade signals will be dispatched during market hours.</i>"
+        )
+        
+        if send_telegram_message(msg):
+            pre_market_sent_date = today_date
+            print("[Pre-Market] Morning Briefing successfully delivered.")
+    except Exception as e:
+        print(f"[Pre-Market Error]: {e}")
 
 def start_24x7_daemon():
     global last_telegram_dispatch
@@ -133,18 +143,20 @@ def start_24x7_daemon():
                     dispatch_15min_telegram_alerts()
                     last_telegram_dispatch = now.minute
                 
-                time.sleep(10)  # Continuous tick scan
+                time.sleep(10)
                 
             # 2. PRE-MARKET HOURS (8:45 AM - 9:14 AM)
             elif is_pre_market_time():
                 send_pre_market_briefing()
                 time.sleep(60)
 
-            # 3. OFF-MARKET HOURS (Silent Background Analysis, Zero Messages)
+            # 3. OFF-MARKET HOURS
             else:
-                # Agent quietly scans global cues & prepares for next session
-                _ = fetch_global_market_sentiment()
-                time.sleep(600)  # Silent background check every 10 mins
+                try:
+                    _ = fetch_global_market_sentiment()
+                except Exception:
+                    pass
+                time.sleep(600)
 
         except Exception as e:
             print(f"[Daemon Loop Error]: {e}")

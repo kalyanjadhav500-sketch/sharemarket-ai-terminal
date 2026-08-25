@@ -6,3 +6,4 @@ ta
 requests
 pytz
 python-dotenv
+streamlit-autorefresh

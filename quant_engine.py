@@ -4,12 +4,15 @@ import numpy as np
 import yfinance as yf
 
 def get_institutional_fundamentals(ticker_symbol):
-    """Fetches fundamental metrics and valuation indicators for equity stocks."""
+    """Fetches fundamental metrics and valuation indicators safely."""
     try:
         ticker = yf.Ticker(ticker_symbol)
-        info = ticker.info
-        pe_ratio = info.get('trailingPE', 0)
-        profit_margins = info.get('profitMargins', 0)
+        info = ticker.info if hasattr(ticker, 'info') else {}
+        if not isinstance(info, dict) or not info:
+            return "NEUTRAL", "Fundamental Data Unavailable"
+        
+        pe_ratio = info.get('trailingPE', 0) or 0
+        profit_margins = info.get('profitMargins', 0) or 0
         
         if pe_ratio > 0 and pe_ratio < 35 and profit_margins > 0.10:
             return "STRONG", f"Solid Fundamentals (P/E: {round(pe_ratio,1)}, Margin: {round(profit_margins*100,1)}%)"
@@ -20,21 +23,25 @@ def get_institutional_fundamentals(ticker_symbol):
         return "NEUTRAL", "Fundamental Data Unavailable"
 
 def fetch_live_news_sentiment(ticker_symbol):
-    """Analyzes real-time news headlines to determine market sentiment."""
+    """Analyzes real-time news headlines safely to determine sentiment."""
     try:
         stock = yf.Ticker(ticker_symbol)
         news_list = stock.news
-        if not news_list:
+        if not news_list or not isinstance(news_list, list):
             return "NEUTRAL", "Neutral Market News Sentiment"
         
         positive_words = ['profit', 'growth', 'surge', 'buy', 'record', 'gain', 'approval', 'bullish', 'outperform']
         negative_words = ['loss', 'decline', 'drop', 'fall', 'penalty', 'sebi', 'bearish', 'fraud', 'probe', 'downgrade']
         
         pos_score, neg_score = 0, 0
-        latest_headline = news_list[0].get('title', '')
+        latest_headline = ""
+        if len(news_list) > 0 and isinstance(news_list[0], dict):
+            latest_headline = news_list[0].get('title', '')
         
         for item in news_list[:5]:
-            title = item.get('title', '').lower()
+            title = ""
+            if isinstance(item, dict):
+                title = item.get('title', '').lower()
             for w in positive_words:
                 if w in title: pos_score += 1
             for w in negative_words:
@@ -75,7 +82,7 @@ def calculate_pivot_points(df_daily):
         return None
 
 def calculate_position_size(entry_price, stop_loss_price, capital=100000, risk_pct=1.0):
-    """Calculates recommended order quantity based on fixed 1% account risk."""
+    """Calculates recommended order quantity based on fixed account risk."""
     try:
         risk_per_trade = capital * (risk_pct / 100.0)
         risk_per_share = abs(entry_price - stop_loss_price)
@@ -135,15 +142,18 @@ def analyze_index(symbol, df_15m, display_name=None):
     clean_symbol = symbol.replace(".NS", "")
     
     pivots = None
+    macro_trend = "NEUTRAL"
     try:
         df_daily = yf.download(symbol, period="6mo", interval="1d", progress=False)
-        if isinstance(df_daily.columns, pd.MultiIndex): df_daily.columns = df_daily.columns.get_level_values(0)
-        df_daily = add_indicators(df_daily)
-        d_close = float(df_daily['Close'].iloc[-1])
-        d_ema50 = float(df_daily['EMA_50'].iloc[-1]) if pd.notna(df_daily['EMA_50'].iloc[-1]) else d_close
-        d_ema200 = float(df_daily['EMA_200'].iloc[-1]) if pd.notna(df_daily['EMA_200'].iloc[-1]) else d_close
-        macro_trend = "BULLISH" if d_close > d_ema50 and d_close > d_ema200 else ("BEARISH" if d_close < d_ema50 and d_close < d_ema200 else "NEUTRAL")
-        pivots = calculate_pivot_points(df_daily)
+        if df_daily is not None and not df_daily.empty:
+            if isinstance(df_daily.columns, pd.MultiIndex): 
+                df_daily.columns = df_daily.columns.get_level_values(0)
+            df_daily = add_indicators(df_daily)
+            d_close = float(df_daily['Close'].iloc[-1])
+            d_ema50 = float(df_daily['EMA_50'].iloc[-1]) if pd.notna(df_daily['EMA_50'].iloc[-1]) else d_close
+            d_ema200 = float(df_daily['EMA_200'].iloc[-1]) if pd.notna(df_daily['EMA_200'].iloc[-1]) else d_close
+            macro_trend = "BULLISH" if d_close > d_ema50 and d_close > d_ema200 else ("BEARISH" if d_close < d_ema50 and d_close < d_ema200 else "NEUTRAL")
+            pivots = calculate_pivot_points(df_daily)
     except Exception:
         macro_trend = "NEUTRAL"
 
@@ -218,7 +228,7 @@ def analyze_index(symbol, df_15m, display_name=None):
     }
 
 def build_scanner_row(symbol, df_15m, df_daily=None, *args, **kwargs):
-    """Advanced Multi-Dimensional Equity Scanner Engine."""
+    """Advanced Multi-Dimensional Equity Scanner Engine with Exception Guards."""
     if df_15m is None or not isinstance(df_15m, pd.DataFrame) or df_15m.empty or len(df_15m) < 10:
         return None
 
@@ -226,19 +236,23 @@ def build_scanner_row(symbol, df_15m, df_daily=None, *args, **kwargs):
     yf_ticker = f"{clean_symbol}.NS"
     sector = kwargs.get("sector", "Equity")
     
+    # Safe API Calls
     fund_score, fund_desc = get_institutional_fundamentals(yf_ticker)
     news_score, news_desc = fetch_live_news_sentiment(yf_ticker)
     
     pivots = None
+    macro_trend = "NEUTRAL"
     try:
         if df_daily is None or df_daily.empty:
             df_daily = yf.download(yf_ticker, period="6mo", interval="1d", progress=False)
-            if isinstance(df_daily.columns, pd.MultiIndex): df_daily.columns = df_daily.columns.get_level_values(0)
-        df_daily = add_indicators(df_daily)
-        d_close = float(df_daily['Close'].iloc[-1])
-        d_ema50 = float(df_daily['EMA_50'].iloc[-1]) if pd.notna(df_daily['EMA_50'].iloc[-1]) else d_close
-        macro_trend = "BULLISH" if d_close > d_ema50 else "BEARISH"
-        pivots = calculate_pivot_points(df_daily)
+            if df_daily is not None and not df_daily.empty:
+                if isinstance(df_daily.columns, pd.MultiIndex): 
+                    df_daily.columns = df_daily.columns.get_level_values(0)
+                df_daily = add_indicators(df_daily)
+                d_close = float(df_daily['Close'].iloc[-1])
+                d_ema50 = float(df_daily['EMA_50'].iloc[-1]) if pd.notna(df_daily['EMA_50'].iloc[-1]) else d_close
+                macro_trend = "BULLISH" if d_close > d_ema50 else "BEARISH"
+                pivots = calculate_pivot_points(df_daily)
     except Exception:
         macro_trend = "NEUTRAL"
 
