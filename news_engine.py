@@ -1,6 +1,10 @@
 import yfinance as yf
 import requests
 import xml.etree.ElementTree as ET
+import urllib3
+
+# SSL Warning मेसेज बंद करण्यासाठी
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 def fetch_live_news_headlines():
     """
@@ -9,7 +13,8 @@ def fetch_live_news_headlines():
     url = "https://news.google.com/rss/search?q=Nifty+Indian+stock+market+global+cues+crude+oil&hl=en-IN&gl=IN&ceid=IN:en"
     headlines = []
     try:
-        response = requests.get(url, timeout=5)
+        # verify=False जोडल्यामुळे SSL Certificate एरर निघून जाईल
+        response = requests.get(url, timeout=5, verify=False)
         if response.status_code == 200:
             root = ET.fromstring(response.content)
             items = root.findall(".//item")[:3]
@@ -21,7 +26,6 @@ def fetch_live_news_headlines():
     except Exception as e:
         print(f"[News Headlines Parsing Error]: {e}")
 
-    # नेटवर्क एरर आल्यास फॉलबॅक हेडलाईन्स
     if not headlines:
         headlines = [
             "US sanctions & Middle-East geopolitics driving crude oil volatility.",
