@@ -26,7 +26,7 @@ latest_index_signals = {}
 latest_equity_signals = []
 last_alert_sent = {}
 pre_market_sent_date = None
-current_news_sentiment = {"bias": "NEUTRAL", "details": {}}
+current_news_sentiment = {"bias": "NEUTRAL", "details": {}, "headlines": []}
 
 def is_market_hours():
     now = datetime.datetime.now(ist)
@@ -48,10 +48,15 @@ def update_live_news_sentiment():
     """Continuously fetches real-time market sentiment and news breakdown."""
     global current_news_sentiment
     try:
-        bias, details = fetch_global_market_sentiment()
-        current_news_sentiment = {"bias": bias, "details": details}
+        # news_engine मधील ३ ही व्हॅल्यूज अनपॅक (Unpack) केल्या आहेत
+        bias, details, headlines = fetch_global_market_sentiment()
+        current_news_sentiment = {
+            "bias": bias, 
+            "details": details, 
+            "headlines": headlines
+        }
         now_str = datetime.datetime.now(ist).strftime('%H:%M:%S')
-        print(f"📰 [{now_str}] News Sentiment Updated: {bias}")
+        print(f"📰 [{now_str}] Live News & Headlines Updated: {bias}")
     except Exception as e:
         print(f"[News Fetch Error]: {e}")
 
@@ -72,6 +77,7 @@ def continuous_realtime_surveillance():
                 # Dynamic News Factor adjustment
                 if signal:
                     signal['news_bias'] = current_news_sentiment['bias']
+                    signal['news_headlines'] = current_news_sentiment.get('headlines', [])
                     latest_index_signals[idx_name] = signal
                     
                     # Instant Telegram Dispatch on High Confluence Action Signal
@@ -109,7 +115,7 @@ def continuous_realtime_surveillance():
         latest_equity_signals = scanned_stocks
 
 def send_pre_market_briefing():
-    """Morning Pre-Market News Briefing."""
+    """Morning Pre-Market News Briefing with Live Headlines."""
     global pre_market_sent_date
     today_date = datetime.datetime.now(ist).date()
     
@@ -122,15 +128,20 @@ def send_pre_market_briefing():
     update_live_news_sentiment()
     bias = current_news_sentiment.get("bias", "NEUTRAL")
     details = current_news_sentiment.get("details", {})
-    details_formatted = "\n".join([f"• <b>{k}:</b> {v}%" for k, v in details.items()])
+    headlines = current_news_sentiment.get("headlines", [])
+    
+    details_formatted = "\n".join([f"• <b>{k}:</b> {v}%" if isinstance(v, (int, float)) else f"• <b>{k}:</b> {v}" for k, v in details.items()])
+    headlines_formatted = "\n".join([f"📰 <i>{h}</i>" for h in headlines])
     
     msg = (
         f"🌅 <b>24x7 AI AGENT: PRE-MARKET & LIVE NEWS OUTLOOK</b>\n"
         f"───────────────\n"
         f"🎯 <b>Live Sentiment Bias:</b> {bias}\n"
         f"───────────────\n"
-        f"📊 <b>Global Cues & Market Drivers:</b>\n"
+        f"📊 <b>Global Cues & Quant Indicators:</b>\n"
         f"{details_formatted}\n\n"
+        f"🔥 <b>Top Real-Time Headlines:</b>\n"
+        f"{headlines_formatted}\n\n"
         f"⚡ <i>Continuous 1-minute tick scanning & live news tracking active.</i>"
     )
     
@@ -144,7 +155,7 @@ def start_24x7_daemon():
     news_timer = 0
     while True:
         try:
-            # हर १५ मिनिटांनी लाईव्ह बातम्या अपडेट होतील
+            # दर १५ मिनिटांनी लाईव्ह बातम्या व सेंटीमेंट अपडेट होतील
             if time.time() - news_timer > 900:
                 update_live_news_sentiment()
                 news_timer = time.time()
