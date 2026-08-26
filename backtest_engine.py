@@ -1,62 +1,41 @@
-import pandas as pd
-import numpy as np
-from quant_engine import add_indicators
+from data_engine import fetch_stock_data
 
-def backtest_vwap_momentum(df, initial_capital=1_000_000, risk_pct=0.5, min_rr=1.8):
-    if df.empty or len(df)<80:
-        return {"error":"Not enough historical data for backtest."}, pd.DataFrame()
-    x=add_indicators(df).dropna().copy()
-    trades=[]
-    capital=float(initial_capital)
-    risk_fraction=risk_pct/100
-    for i in range(40,len(x)-2):
-        row=x.iloc[i]
-        prev=x.iloc[i-1]
-        atr=row["ATR"]
-        if not np.isfinite(atr) or atr<=0:
-            continue
-        long_cond=(row["Close"]>row["VWAP"] and row["EMA_9"]>row["EMA_21"] and row["RSI"]>55 and row["REL_VOLUME"]>=1.2 and row["Close"]>prev["Close"])
-        short_cond=(row["Close"]<row["VWAP"] and row["EMA_9"]<row["EMA_21"] and row["RSI"]<45 and row["REL_VOLUME"]>=1.2 and row["Close"]<prev["Close"])
-        if not (long_cond or short_cond):
-            continue
-        entry=float(row["Close"])
-        direction=1 if long_cond else -1
-        sl=entry-direction*atr
-        tp=entry+direction*1.8*atr
-        risk_per_share=abs(entry-sl)
-        if risk_per_share<=0: continue
-        qty=max(1,int((capital*risk_fraction)/risk_per_share))
-        result=None; exit_price=None
-        for j in range(i+1,min(i+21,len(x))):
-            bar=x.iloc[j]
-            if direction==1:
-                if bar["Low"]<=sl: result="LOSS"; exit_price=sl; break
-                if bar["High"]>=tp: result="WIN"; exit_price=tp; break
-            else:
-                if bar["High"]>=sl: result="LOSS"; exit_price=sl; break
-                if bar["Low"]<=tp: result="WIN"; exit_price=tp; break
-        if result is None:
-            exit_price=float(x.iloc[min(i+20,len(x)-1)]["Close"])
-            result="WIN" if (exit_price-entry)*direction>0 else "LOSS"
-        pnl=(exit_price-entry)*direction*qty
-        capital+=pnl
-        trades.append({"time":x.index[i],"direction":"BUY" if direction==1 else "SELL","entry":entry,"exit":exit_price,"qty":qty,"pnl":pnl,"result":result})
-    t=pd.DataFrame(trades)
-    if t.empty:
-        return {"trades":0,"win_rate":0,"profit_factor":0,"max_drawdown":0,"total_pnl":0,"final_capital":capital}, t
-    wins=t.loc[t.pnl>0,"pnl"]; losses=t.loc[t.pnl<0,"pnl"]
-    equity=initial_capital+t["pnl"].cumsum()
-    peak=equity.cummax()
-    dd=(equity-peak)/peak*100
-    pf=float(wins.sum()/abs(losses.sum())) if len(losses) and losses.sum()!=0 else float("inf")
-    metrics={
-        "trades":int(len(t)),
-        "win_rate":round(float((t.pnl>0).mean()*100),2),
-        "profit_factor":round(pf,2) if np.isfinite(pf) else "INF",
-        "max_drawdown":round(float(dd.min()),2),
-        "total_pnl":round(float(t.pnl.sum()),2),
-        "final_capital":round(float(capital),2),
-        "avg_pnl":round(float(t.pnl.mean()),2),
-        "avg_r":round(float(t.pnl.abs().mean()/max(1,initial_capital*risk_fraction)),2)
-    }
-    return metrics,t
+def run_backtest(ticker="^NSEI", period="1mo"):
+    df = fetch_stock_data(ticker, period=period, interval="15m")
+    if df is None or df.empty:
+        print("No data retrieved for backtesting.")
+        return
+
+    trades = []
+    in_trade = False
+    entry_price = 0.0
+
+    for i in range(21, len(df)):
+        row = df.iloc[i]
+        prev = df.iloc[i-1]
+
+        if not in_trade:
+            # Entry condition: EMA 9 crosses above EMA 21 and RSI > 53
+            if (prev['ema_9'] <= prev['ema_21']) and (row['ema_9'] > row['ema_21']) and (row['rsi'] > 53):
+                in_trade = True
+                entry_price = row['close']
+        else:
+            pnl_pct = ((row['close'] - entry_price) / entry_price) * 100
+            # Exit condition: Target +1.5% or Stoploss -0.8%
+            if pnl_pct >= 1.5 or pnl_pct <= -0.8:
+                trades.append(pnl_pct)
+                in_trade = False
+
+    total_trades = len(trades)
+    wins = [t for t in trades if t > 0]
+    losses = [t for t in trades if t < 0]
+    win_rate = (len(wins) / total_trades * 100) if total_trades > 0 else 0.0
+    profit_factor = round(sum(wins) / (abs(sum(losses)) + 1e-9), 2)
+
+    print(f"\n📊 --- BACKTEST REPORT: {ticker} ---")
+    print(f"Total Signals Evaluated: {total_trades}")
+    print(f"Win Rate: {win_rate:.2f}%")
+    print(f"Profit Factor: {profit_factor}")
+
+if __name__ == "__main__":
+    run_backtest("^NSEI")

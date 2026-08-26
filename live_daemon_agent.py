@@ -1,176 +1,63 @@
+import os
 import time
 import datetime
-import pytz
-import yfinance as yf
-import pandas as pd
-from quant_engine import analyze_index, build_scanner_row
-from news_engine import fetch_global_market_sentiment
-from telegram_alerts import send_telegram_message, send_index_signal, send_top_stocks
-from broker_engine import broker_stream
+import requests
+from dotenv import load_dotenv
+from data_engine import fetch_stock_data
+from quant_engine import analyze_institutional_matrix
 
-WATCHLIST_SECTORS = {
-    "RELIANCE": "Energy", 
-    "TCS": "IT", 
-    "INFY": "IT",
-    "HDFCBANK": "Banking", 
-    "ICICIBANK": "Banking", 
-    "SBIN": "Banking",
-    "BHARTIARTL": "Telecom", 
-    "TATASTEEL": "Metals"
-}
+load_dotenv()
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-ist = pytz.timezone('Asia/Kolkata')
-
-latest_index_signals = {}
-latest_equity_signals = []
-last_alert_sent = {}
-pre_market_sent_date = None
-current_news_sentiment = {"bias": "NEUTRAL", "details": {}, "headlines": []}
-
-def is_market_hours():
-    now = datetime.datetime.now(ist)
-    if now.weekday() >= 5:
-        return False
-    market_start = now.replace(hour=9, minute=15, second=0, microsecond=0)
-    market_end = now.replace(hour=15, minute=30, second=0, microsecond=0)
-    return market_start <= now <= market_end
-
-def is_pre_market_time():
-    now = datetime.datetime.now(ist)
-    if now.weekday() >= 5:
-        return False
-    pre_start = now.replace(hour=8, minute=45, second=0, microsecond=0)
-    pre_end = now.replace(hour=9, minute=14, second=0, microsecond=0)
-    return pre_start <= now <= pre_end
-
-def update_live_news_sentiment():
-    """Continuously fetches real-time market sentiment and news breakdown."""
-    global current_news_sentiment
-    try:
-        bias, details, headlines = fetch_global_market_sentiment()
-        current_news_sentiment = {
-            "bias": bias, 
-            "details": details, 
-            "headlines": headlines
-        }
-        now_str = datetime.datetime.now(ist).strftime('%H:%M:%S')
-        print(f"📰 [{now_str}] Live News & Headlines Updated: {bias}")
-    except Exception as e:
-        print(f"[News Fetch Error]: {e}")
-
-def continuous_realtime_surveillance():
-    """Direct Broker WebSocket Tick Surveillance with Zero-Lag Logic."""
-    global latest_index_signals, latest_equity_signals, last_alert_sent
-    
-    for idx_symbol, idx_name in [("^NSEI", "NIFTY 50"), ("^NSEBANK", "BANK NIFTY")]:
-        try:
-            df_1m = yf.download(idx_symbol, period="1d", interval="1m", progress=False)
-            if isinstance(df_1m.columns, pd.MultiIndex):
-                df_1m.columns = df_1m.columns.get_level_values(0)
-            
-            if not df_1m.empty and len(df_1m) > 2:
-                # 0-Lag Tick Data Fetching from Broker Bridge Engine
-                curr_price = df_1m['Close'].iloc[-1]
-                tick_data = broker_stream.fetch_live_tick(idx_symbol, current_market_price=curr_price)
-                
-                # Dynamic Quant Execution with Tick Imbalance
-                signal = analyze_index(idx_symbol, df_1m, display_name=idx_name, tick_data=tick_data)
-                
-                if signal:
-                    signal['news_bias'] = current_news_sentiment['bias']
-                    signal['news_headlines'] = current_news_sentiment.get('headlines', [])
-                    latest_index_signals[idx_name] = signal
-                    
-                    action = signal.get("action")
-                    if action in ["BUY CALL (CE)", "BUY PUT (PE)"]:
-                        last_time = last_alert_sent.get(idx_name)
-                        now_time = time.time()
-                        
-                        if not last_time or (now_time - last_time > 300):
-                            send_index_signal(signal)
-                            last_alert_sent[idx_name] = now_time
-                            print(f"⚡ [0-LAG HFT ALERT SENT]: {idx_name} -> {action}")
-        except Exception as e:
-            print(f"[Real-Time Watch Error - {idx_name}]: {e}")
-
-    scanned_stocks = []
-    for symbol, sector in WATCHLIST_SECTORS.items():
-        try:
-            df_1m = yf.download(f"{symbol}.NS", period="1d", interval="1m", progress=False)
-            if isinstance(df_1m.columns, pd.MultiIndex):
-                df_1m.columns = df_1m.columns.get_level_values(0)
-            
-            if not df_1m.empty and len(df_1m) > 2:
-                row = build_scanner_row(symbol, df_1m, sector=sector)
-                if row and row.get("action") in ["BUY / LONG", "SELL / SHORT"]:
-                    row['news_bias'] = current_news_sentiment['bias']
-                    scanned_stocks.append(row)
-        except Exception as e:
-            print(f"[Real-Time Watch Error - {symbol}]: {e}")
-
-    if scanned_stocks:
-        scanned_stocks.sort(key=lambda x: x.get("confidence", 0), reverse=True)
-        latest_equity_signals = scanned_stocks
-
-def send_pre_market_briefing():
-    global pre_market_sent_date
-    today_date = datetime.datetime.now(ist).date()
-    
-    if pre_market_sent_date == today_date:
+def send_telegram_alert(message):
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        print("[ALERT WARNING] Telegram Bot Token or Chat ID missing in .env")
         return
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}
+    try:
+        requests.post(url, json=payload, timeout=5)
+    except Exception as e:
+        print(f"[TELEGRAM ERROR] {e}")
 
-    now_str = datetime.datetime.now(ist).strftime('%H:%M:%S')
-    print(f"🌅 [{now_str}] Preparing Morning Pre-Market Briefing...")
-    
-    update_live_news_sentiment()
-    bias = current_news_sentiment.get("bias", "NEUTRAL")
-    details = current_news_sentiment.get("details", {})
-    headlines = current_news_sentiment.get("headlines", [])
-    
-    details_formatted = "\n".join([f"• <b>{k}:</b> {v}%" if isinstance(v, (int, float)) else f"• <b>{k}:</b> {v}" for k, v in details.items()])
-    headlines_formatted = "\n".join([f"📰 <i>{h}</i>" for h in headlines])
-    
-    msg = (
-        f"🌅 <b>24x7 AI AGENT: PRE-MARKET OUTLOOK</b>\n"
-        f"───────────────\n"
-        f"🎯 <b>Live Sentiment Bias:</b> {bias}\n"
-        f"───────────────\n"
-        f"📊 <b>Global Cues & Quant Drivers:</b>\n"
-        f"{details_formatted}\n\n"
-        f"🔥 <b>Top Real-Time Headlines:</b>\n"
-        f"{headlines_formatted}\n\n"
-        f"⚡ <i>Broker WebSocket Tick Stream Active.</i>"
-    )
-    
-    if send_telegram_message(msg):
-        pre_market_sent_date = today_date
-        print("[Pre-Market] Morning Briefing successfully delivered.")
+def run_market_surveillance():
+    watchlist = ["^NSEI", "^NSEBANK", "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "ICICIBANK.NS", "INFY.NS"]
+    last_alert_time = {}
 
-def start_24x7_daemon():
-    print("🤖 [STARTING BROKER TICK-STREAM ZERO-LAG AI DAEMON] 🤖")
-    broker_stream.connect()
-    
-    news_timer = 0
+    print("🤖 Quant AI 24x7 Surveillance Agent Operational...")
     while True:
-        try:
-            if time.time() - news_timer > 900:
-                update_live_news_sentiment()
-                news_timer = time.time()
+        now = datetime.datetime.now()
+        current_time = now.strftime("%H:%M")
+        is_market_hours = "09:15" <= current_time <= "15:30" and now.weekday() < 5
 
-            if is_market_hours():
-                continuous_realtime_surveillance()
-                time.sleep(2)  # २ सेकंदांच्या 0-Lag स्पीड लूपवर स्कॅनिंग
-                
-            elif is_pre_market_time():
-                send_pre_market_briefing()
-                time.sleep(60)
+        # Pre-Market Outlook Briefing (08:45 - 09:14 IST)
+        if "08:45" <= current_time <= "09:14" and now.weekday() < 5:
+            if "pre_market_sent" not in last_alert_time or last_alert_time["pre_market_sent"] != now.date():
+                brief = "🌅 *PRE-MARKET QUANT OUTLOOK*\n\nMarket surveillance cycle initialized. Models targeting high confluence setups for today's session."
+                send_telegram_alert(brief)
+                last_alert_time["pre_market_sent"] = now.date()
 
-            else:
-                time.sleep(300)
-
-        except Exception as e:
-            print(f"[Daemon Loop Error]: {e}")
-            time.sleep(5)
+        if is_market_hours:
+            for symbol in watchlist:
+                df = fetch_stock_data(symbol, period="5d", interval="5m")
+                if df is not None:
+                    res = analyze_institutional_matrix(df)
+                    if res["confidence"] >= 85:
+                        last_sent = last_alert_time.get(symbol, 0)
+                        if time.time() - last_sent > 300:  # 5 Minutes Cooldown
+                            msg = f"🚨 *HIGH CONFLUENCE TRADE ALERT*\n\n" \
+                                  f"📌 *Symbol*: `{symbol}`\n" \
+                                  f"⚡ *Action*: *{res['action']}*\n" \
+                                  f"💵 *Entry*: ₹{res['entry_price']}\n" \
+                                  f"🎯 *Target 1*: ₹{res['target1']}\n" \
+                                  f"🎯 *Target 2*: ₹{res['target2']}\n" \
+                                  f"🛡️ *Stop Loss*: ₹{res['stop_loss']}\n" \
+                                  f"📊 *Score*: {res['confidence']}%\n" \
+                                  f"⚖️ *Risk/Reward*: {res['rr_ratio']}"
+                            send_telegram_alert(msg)
+                            last_alert_time[symbol] = time.time()
+        time.sleep(60)
 
 if __name__ == "__main__":
-    start_24x7_daemon()
+    run_market_surveillance()

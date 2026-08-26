@@ -1,9 +1,8 @@
 streamlit
-yfinance
 pandas
 numpy
-ta
+yfinance
 requests
-pytz
 python-dotenv
-streamlit-autorefresh
+pyotp
+smartapi-python
