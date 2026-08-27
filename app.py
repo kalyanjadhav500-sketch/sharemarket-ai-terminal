@@ -7,7 +7,7 @@ from broker_engine import get_portfolio
 st.set_page_config(page_title="Quant AI Terminal", layout="wide")
 st.title("🏛️ Institutional Quant AI Terminal V2")
 
-# ⚡ LIVE TICKER FRAGMENT (Updates every 1-2 seconds smoothly)
+# ⚡ LIVE TICKER FRAGMENT (Updates every 2 seconds without full page reload)
 @st.fragment(run_every="2s")
 def show_live_tickers():
     idx_col1, idx_col2, idx_col3 = st.columns(3)
@@ -29,7 +29,7 @@ show_live_tickers()
 
 st.markdown("---")
 
-# Sidebar
+# Sidebar Navigation
 with st.sidebar:
     st.header("Navigation & Settings")
     view_mode = st.radio("Select View", ["📈 Live Index Analysis", "💼 Paper Options & Live P&L"])
@@ -91,24 +91,38 @@ elif view_mode == "💼 Paper Options & Live P&L":
         if positions:
             for sym, pos in positions.items():
                 curr_price = pos['entry_price']
-                spot_symbol = "^NSEI" if "NIFTY 50" in sym else ("^NSEBANK" if "BANK NIFTY" in sym else "^BSESN")
+                
+                # Robust symbol mapping logic
+                if "NIFTY 50" in sym:
+                    fetch_sym = "^NSEI"
+                elif "BANK NIFTY" in sym:
+                    fetch_sym = "^NSEBANK"
+                elif "SENSEX" in sym:
+                    fetch_sym = "^BSESN"
+                else:
+                    fetch_sym = sym
+                
                 try:
-                    df_curr = fetch_stock_data(spot_symbol, period="1d", interval="1m")
+                    df_curr = fetch_stock_data(fetch_sym, period="1d", interval="1m")
                     if not df_curr.empty:
                         curr_price = round(float(df_curr['close'].iloc[-1]), 2)
                 except Exception:
                     pass
                 
-                if "BUY CE" in pos["action"] or pos["action"] == "BUY / LONG":
+                # P&L Calculation logic based on trade direction
+                action = pos.get("action", "")
+                if "BUY CE" in action or action == "BUY / LONG":
                     unrealized_pnl = (curr_price - pos['entry_price']) * pos['qty']
-                else:
+                elif "BUY PE" in action or action == "SELL / SHORT":
                     unrealized_pnl = (pos['entry_price'] - curr_price) * pos['qty']
+                else:
+                    unrealized_pnl = 0.0
                 
                 total_unrealized_pnl += unrealized_pnl
                 
                 pos_data.append({
                     "Instrument": sym,
-                    "Action": pos["action"],
+                    "Action": action,
                     "Qty": pos["qty"],
                     "Entry Spot": f"₹{pos['entry_price']}",
                     "Live Spot": f"₹{curr_price}",
@@ -128,11 +142,13 @@ elif view_mode == "💼 Paper Options & Live P&L":
         if pos_data:
             st.dataframe(pd.DataFrame(pos_data), use_container_width=True)
         else:
-            st.info("सध्या कोणतीही Active Position उघडी नाही.")
+            st.info("No active open positions currently.")
 
         st.markdown("---")
         st.write("### 📜 Executed Trade History")
         if history:
             st.dataframe(pd.DataFrame(history)[::-1], use_container_width=True)
+        else:
+            st.info("No executed trade history available yet.")
 
     show_live_portfolio()
