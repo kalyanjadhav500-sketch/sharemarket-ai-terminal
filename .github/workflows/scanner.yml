@@ -28,4 +28,4 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          python -c "from auto_telegram_scanner import run_15min_cycle; run_15min_cycle()"
+          python -c "from live_daemon_agent import run_15min_cycle; run_15min_cycle()"
