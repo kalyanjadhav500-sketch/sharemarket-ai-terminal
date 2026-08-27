@@ -1,3 +1,9 @@
+from live_daemon_agent import run_15min_cycle
+
+if __name__ == "__main__":
+    run_15min_cycle()
+
+
 # import os
 # import yfinance as yf
 # import pandas as pd
