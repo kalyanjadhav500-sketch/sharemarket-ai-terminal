@@ -2,6 +2,7 @@ import os
 import time
 from data_engine import fetch_stock_data
 from quant_engine import analyze_institutional_matrix
+from broker_engine import execute_paper_trade
 
 WATCHLIST = ["^NSEI", "RELIANCE.NS", "TCS.NS", "INFY.NS", "HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS"]
 
@@ -41,6 +42,11 @@ def run_15min_cycle():
             print(f"📊 [{symbol}] Action: {action} | Confidence: {confidence}% | Price: ₹{price}")
             
             if action in ["BUY / LONG", "SELL / SHORT"] and confidence >= 75:
+                # १. पेपर ट्रेडिंग ऑर्डर ऑटो-एक्झिक्युट करणे
+                trade_log = execute_paper_trade(symbol, action, price, qty=10, sl=res.get('sl'), tp=res.get('tp1'))
+                print(f"💼 {trade_log}")
+
+                # २. टेलिग्रामवर अलर्ट पाठवणे
                 reasons_text = "\n".join([f"• {r}" for r in res.get("reasons", [])])
                 alert_msg = (
                     f"🚨 *QUANT AI SIGNAL ALERT*\n\n"

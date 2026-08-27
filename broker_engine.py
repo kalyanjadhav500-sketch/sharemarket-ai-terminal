@@ -1,28 +1,57 @@
+import json
 import os
-import time
-from dotenv import load_dotenv
+from datetime import datetime
 
-load_dotenv()
+PORTFOLIO_FILE = "paper_portfolio.json"
 
-class SmartAPIBroker:
-    def __init__(self):
-        self.api_key = os.getenv("ANGEL_API_KEY")
-        self.client_id = os.getenv("ANGEL_CLIENT_ID")
-        self.password = os.getenv("ANGEL_PASSWORD")
-        self.totp_secret = os.getenv("ANGEL_TOTP_SECRET")
+def get_portfolio():
+    if not os.path.exists(PORTFOLIO_FILE):
+        default_data = {"capital": 100000.0, "positions": {}, "history": []}
+        save_portfolio(default_data)
+        return default_data
+    with open(PORTFOLIO_FILE, "r") as f:
+        return json.load(f)
 
-    def connect(self):
-        if self.api_key and self.client_id:
-            print(f"⚡ [AngelOne SmartAPI] Connected successfully for Client: {self.client_id}")
-            print("🟢 Live Tick Stream Data Bridge Active (<50ms latency).")
-            return True
-        else:
-            print("❌ [AngelOne SmartAPI] Missing credentials in .env file!")
-            return False
+def save_portfolio(data):
+    with open(PORTFOLIO_FILE, "w") as f:
+        json.dump(data, f, indent=4)
 
-    def get_live_tick(self, symbol):
-        return {"symbol": symbol, "timestamp": time.time(), "status": "CONNECTED"}
+def execute_paper_trade(symbol: str, action: str, price: float, qty: int = 10, sl: float = 0.0, tp: float = 0.0):
+    portfolio = get_portfolio()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-if __name__ == "__main__":
-    broker = SmartAPIBroker()
-    broker.connect()
+    # १. नव्याने पोझिशन घेणे (BUY/SELL)
+    if symbol not in portfolio["positions"]:
+        if action in ["BUY / LONG", "SELL / SHORT"]:
+            required_cap = price * qty
+            if portfolio["capital"] < required_cap:
+                return f"⚠️ अपुरे व्हर्च्युअल भांडवल. आवश्यक: ₹{required_cap:.2f}"
+            
+            portfolio["capital"] -= required_cap
+            portfolio["positions"][symbol] = {
+                "action": action,
+                "qty": qty,
+                "entry_price": price,
+                "sl": sl,
+                "tp": tp,
+                "entry_time": now
+            }
+            portfolio["history"].append({"time": now, "symbol": symbol, "type": "ENTRY", "action": action, "price": price, "qty": qty})
+            save_portfolio(portfolio)
+            return f"🟢 [PAPER TRADE] Executed {action} for {symbol} @ ₹{price} (Qty: {qty})"
+
+    # २. अस्तित्वात असलेली पोझिशन बंद करणे (Exit)
+    else:
+        pos = portfolio["positions"][symbol]
+        if (pos["action"] == "BUY / LONG" and action == "SELL / SHORT") or \
+           (pos["action"] == "SELL / SHORT" and action == "BUY / LONG") or action == "EXIT":
+            
+            pnl = (price - pos["entry_price"]) * pos["qty"] if pos["action"] == "BUY / LONG" else (pos["entry_price"] - price) * pos["qty"]
+            portfolio["capital"] += (pos["entry_price"] * pos["qty"]) + pnl
+            del portfolio["positions"][symbol]
+            
+            portfolio["history"].append({"time": now, "symbol": symbol, "type": "EXIT", "price": price, "pnl": round(pnl, 2)})
+            save_portfolio(portfolio)
+            return f"🔴 [PAPER TRADE] Closed Position for {symbol} @ ₹{price} | P&L: ₹{pnl:.2f}"
+
+    return "ℹ️ नो नवीन ट्रेड्स."
